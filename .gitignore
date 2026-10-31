@@ -1,0 +1,13 @@
+node_modules/
+dist/
+output/
+.env
+.env.*
+!.env.example
+*.local
+*.key
+*.pem
+jiandu-migration*.json
+.codex/
+.agents/
+.aws/
