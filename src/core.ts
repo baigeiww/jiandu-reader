@@ -20,14 +20,17 @@ export function normalizeArticle(article: Element) {
       math.classList.add('technical-literal');
     }
   });
-  article.querySelectorAll('figure').forEach(figure=>{
-    if(!figure.querySelector('.ltx_verbatim'))return;
-    const rows=[...figure.querySelectorAll('.ltx_verbatim .ltx_p')].filter(row=>!row.querySelector('.ltx_p'));
+  // A listing can share a figure with other panels, images and captions.
+  article.querySelectorAll('figure > :is(p,div,span)').forEach(listing=>{
+    const rows=[...listing.querySelectorAll('.ltx_verbatim .ltx_p')].filter(row=>!row.querySelector('.ltx_p'));
     if(!rows.length)return;
+    if(listing.querySelector('figure,figcaption,img,picture,svg,object,math,table'))return;
+    const lines=rows.map(row=>row.textContent || '');
+    if(lines.join('').replace(/\s/g,'')!==listing.textContent?.replace(/\s/g,''))return;
     const pre=doc.createElement('pre');pre.className='directory-tree ltx_verbatim';
-    pre.textContent=rows.map(row=>row.textContent || '').join('\n');
-    const caption=figure.querySelector('figcaption');
-    figure.replaceChildren(pre,...(caption?[caption]:[]));
+    if(listing.id)pre.id=listing.id;
+    pre.textContent=lines.join('\n');
+    listing.replaceWith(pre);
   });
 }
 

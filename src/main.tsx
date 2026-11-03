@@ -1,4 +1,4 @@
-import React, {lazy,Suspense,useEffect, useRef, useState} from 'react';
+import React, {lazy,Suspense,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {SOURCE, prepareParagraph, restoreTranslation, cacheKey} from './core';
 import {samples} from './samples';
@@ -11,21 +11,24 @@ import {PaperReader,type PaperReaderHandle} from './PaperReader';
 import {parsePaper,clean,isTranslatable,untranslatedBlocks,type Block,type TranslationScope} from './paper';
 import {modelRequest} from './modelApi';
 import {FORMULA_PROMPT,formulaMessage,type FormulaTarget} from './formula';
-import {PaperLibrary} from './PaperLibrary';
+const PaperLibrary=lazy(()=>import('./PaperLibrary').then(m=>({default:m.PaperLibrary})));
 import {FloatingPanel} from './FloatingPanel';
 import {SidebarResize} from './SidebarResize';
 import {startAssistantBridge} from './assistant';
 import {TranslationTasks,type TranslationTask} from './translationTasks';
 import {TranslationTaskBar} from './TranslationTaskBar';
-import {readPaper,savePaper,readTranslation,saveTranslation,saveAssistantTranslations,type Result,type Paper} from './library';
+import {openSavedPaper,touchPaper,readNotes,savePaper,readTranslation,readCachedTranslations,saveTranslation,saveMissingTranslations,type Result,type Paper} from './library';
 import './style.css';
 import './refined.css';
 const MathExplanation=lazy(()=>import('./MathExplanation').then(module=>({default:module.MathExplanation})));
 
 type FormulaState={target:FormulaTarget;loading:boolean;result?:string;error?:string;model:string;cached?:boolean};
-const icons = {book:'◫',arrow:'↗',settings:'⚙',close:'×'};
+
 async function loadCached(key:string):Promise<Result|undefined> {
   try{const saved=await readTranslation(key);if(saved)return {...saved,html:clean(saved.html)};}catch{/* Legacy storage remains readable. */}
+  return legacyCached(key);
+}
+function legacyCached(key:string):Result|undefined {
   try{const saved=JSON.parse(localStorage.getItem('translation:'+key)||'null');return saved?{...saved,html:clean(saved.html)}:undefined;}catch{return undefined;}
 }
 async function requestUsing(settings:Settings,text:string,tokens:Record<string,string>,signal?:AbortSignal,context=''){
@@ -38,10 +41,27 @@ async function requestUsing(settings:Settings,text:string,tokens:Record<string,s
   return clean(restoreTranslation(output,tokens,document));
 }
 
+const receivingBackup=new URLSearchParams(location.hash.slice(1)).has('receive');
+const sidebarPreference='reader-sidebar-collapsed';
+
+function SidebarToggle({expanded,onToggle}:{expanded:boolean;onToggle:()=>void}){
+  const label=expanded?'收起侧栏':'展开侧栏';
+  return <button id="sidebar-toggle" className="sidebar-toggle" onClick={onToggle}
+    aria-controls="reading-sidebar" aria-expanded={expanded} title={label}>
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <rect x="1.75" y="3.25" width="16.5" height="13.5" rx="2.25"/>
+      <path d="M7 3.5v13" />
+      <path d={expanded?'m13.5 7.5-2.5 2.5 2.5 2.5':'m11 7.5 2.5 2.5-2.5 2.5'} strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+    {label}
+  </button>;
+}
+
 function App() {
   const readerRef=useRef<PaperReaderHandle>(null);
   const [paper,setPaper]=useState<ReturnType<typeof parsePaper>>();
   const [importValue,setImportValue]=useState('');
+  const [showImport,setShowImport]=useState(false);
   const [importing,setImporting]=useState(false);
   const [importError,setImportError]=useState('');
   const importController=useRef<AbortController|undefined>(undefined);
@@ -53,12 +73,45 @@ function App() {
   const [configuration,setConfiguration]=useState<Configuration>(()=>{try{return readConfiguration(localStorage);}catch{return {version:1,activeId:'',profiles:[]};}});
   const [settings,setSettings]=useState(()=>activeSettings(configuration));
   const [dialog,setDialog]=useState(false);
-  const [side,setSide]=useState(()=>innerWidth>=1100);
+  const [side,setSide]=useState(()=>{
+    if(receivingBackup)return true;
+    if(innerWidth<1100)return false;
+    try{return localStorage.getItem(sidebarPreference)!=='true';}catch{return true;}
+  });
+  const focusSidebarToggle=useRef(false);
+  function toggleSidebar(){
+    focusSidebarToggle.current=true;
+    setSide(!side);
+    if(innerWidth>=1100){
+      try{localStorage.setItem(sidebarPreference,String(side));}catch{/* Use the choice for this session. */}
+    }
+  }
+  useLayoutEffect(()=>{
+    if(focusSidebarToggle.current){
+      focusSidebarToggle.current=false;
+      document.getElementById('sidebar-toggle')?.focus({preventScroll:true});
+    }
+  },[side]);
+  const [shelf,setShelf]=useState(receivingBackup);
   const [libraryRevision,setLibraryRevision]=useState(0);
   const storageWarning=useRef(false);
   const [active,setActive]=useState('abstract');
-  const [font,setFont]=useState(17);
-  const [dark,setDark]=useState(false);
+  const [font,setFont]=useState(()=>{
+    try { const saved=Number(localStorage.getItem('reader-font-size')); if([16,17,18,19].includes(saved))return saved; } catch {}
+    return 17;
+  });
+  const [dark,setDark]=useState(()=>{
+    try { const saved=localStorage.getItem('reader-theme'); if(saved)return saved==='dark'; } catch {}
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  function changeTheme(){
+    const next=!dark;setDark(next);
+    try{localStorage.setItem('reader-theme',next?'dark':'light');}catch{}
+  }
+  function changeFont(){
+    const next=font===19?16:font+1;setFont(next);
+    try{localStorage.setItem('reader-font-size',String(next));}catch{}
+  }
   const [notice,setNotice]=useState('');
   const [selection,setSelection]=useState<{text:string; block:string; result?:string; loading?:boolean}>();
   const [formula,setFormula]=useState<FormulaState>();
@@ -70,10 +123,10 @@ function App() {
   const taskQueue=useRef<TranslationTasks|undefined>(undefined);
   const [tasks,setTasks]=useState<TranslationTask[]>([]);
   if(!taskQueue.current)taskQueue.current=new TranslationTasks({
-    read:async source=>(await readPaper(source))?.results||{},cached:loadCached,
+    read:async source=>(await readNotes(source))?.results||{},cached:loadCached,
     translate:async(block,config,signal)=>({html:await requestUsing(config,block.input,block.tokens,signal),type:config.provider.startsWith('google')?'google':'api'}),
     save:async(source,id,key,result)=>{
-      const saved=await saveAssistantTranslations(source,[{id,key,result}]);const actual=(await readPaper(source))?.results[id];
+      const {saved,results}=await saveMissingTranslations(source,[{id,key,result}]);const actual=results[id];
       if(!actual)throw Error('译文未能保存，请检查浏览器存储权限或空间。');return {result:actual,saved:saved.includes(id)};
     },
     result:(source,id,result)=>{if(currentPaper.current?.source===source){setResults(x=>({...x,[id]:result}));setErrors(x=>({...x,[id]:''}));}setLibraryRevision(n=>n+1);}
@@ -86,22 +139,37 @@ function App() {
   const isSample=paper?.source===SOURCE;
   const sampleFor=(id:string)=>isSample?samples[id]:undefined;
   useEffect(()=>()=>formulaController.current?.abort(),[]);
-  useEffect(()=>{if(new URLSearchParams(location.hash.slice(1)).has('receive'))return;
+  useEffect(()=>{
+    const blocked=()=>setImportError('正在等待论文库升级。请关闭同一浏览器中的其他旧版笺读标签页，升级会自动继续。');
+    window.addEventListener('reader-library-blocked',blocked);
+    return ()=>window.removeEventListener('reader-library-blocked',blocked);
+  },[]);
+  useEffect(()=>{if(receivingBackup)return;
     let previous=SOURCE;try{previous=localStorage.getItem('reader-last-source')||SOURCE;}catch{/* Browser storage can be disabled. */}
     void importPaper(previous,true);return()=>importController.current?.abort();},[]);
-  useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';},[dark]);
+  useEffect(()=>{const theme=dark?'dark':'light';document.documentElement.dataset.theme=theme;
+    (window as Window & {webkit?:{messageHandlers?:{readerAppearance?:{postMessage:(theme:string)=>void}}}}).webkit?.messageHandlers?.readerAppearance?.postMessage(theme);},[dark]);
   function storageFailed(){if(!storageWarning.current){storageWarning.current=true;toast('本地保存失败，请检查浏览器存储权限或空间；当前页面仍可阅读。');}}
   async function persistResult(source:string,block:Block,key:string,result:Result){
     try{await saveTranslation(source,block.id,key,result);setLibraryRevision(n=>n+1);}catch{storageFailed();}
   }
   async function restoreResults(next:Paper,saved:Record<string,Result>={}){
-    const restored:Record<string,Result>={};
-    await Promise.all(next.blocks.filter(isTranslatable).map(async block=>{
-      const config=currentSettings.current;
-      const key=cacheKey(next.source,block.input,config.provider+':'+config.endpoint,config.model,config.glossary);
-      const result=saved[block.id]||await loadCached(key);
-      if(result){restored[block.id]={...result,html:clean(result.html)};if(!saved[block.id])await persistResult(next.source,block,key,restored[block.id]);}
+    const config=currentSettings.current;
+    const missing=next.blocks.filter(block=>isTranslatable(block)&&!saved[block.id]).map(block=>({
+      id:block.id,key:cacheKey(next.source,block.input,config.provider+':'+config.endpoint,config.model,config.glossary)
     }));
+    const cached=missing.length?await readCachedTranslations(missing.map(item=>item.key)).catch(()=>new Map<string,Result>()):new Map<string,Result>();
+    const hits=missing.flatMap(({id,key})=>{
+      const result=cached.get(key)||legacyCached(key);
+      return result?[{id,key,result:{...result,html:clean(result.html)}}]:[];
+    });
+    // Prefer concurrent assistant or background translations over cache recovery.
+    let latest=saved;
+    try{
+      latest=hits.length?(await saveMissingTranslations(next.source,hits)).results:(await readNotes(next.source))?.results||saved;
+    }catch{storageFailed();}
+    const restored:Record<string,Result>=Object.fromEntries(hits.map(item=>[item.id,item.result]));
+    for(const [id,result] of Object.entries(latest))restored[id]={...result,html:clean(result.html)};
     return restored;
   }
   async function importPaper(input:string,initial=false) {
@@ -110,27 +178,27 @@ function App() {
     importController.current?.abort();const controller=new AbortController();importController.current=controller;
     paperGeneration.current++;setBusy({});setSelection(undefined);closeFormula();setImporting(true);setImportError('');
     try {
-      let record;try{record=await readPaper(target);}catch{storageFailed();}
+      let saved;try{saved=await openSavedPaper(target);}catch{storageFailed();}
       if(controller.signal.aborted)return;
+      const record=saved?.record;
       const loaded=record?undefined:target===SOURCE?{html:await fetch('/paper.html',{signal:controller.signal}).then(r=>{if(!r.ok)throw Error('论文加载失败');return r.text();}),source:SOURCE}:await fetchPaper(target,controller.signal);
-      const next=record?parsePaper(record.paper.html,record.source):parsePaper(loaded!.html,loaded!.source);
+      const next=record?(saved?.needsParse?parsePaper(record.paper.html,record.source):record.paper):parsePaper(loaded!.html,loaded!.source);
       if(!next.blocks.some(b=>b.kind==='paragraph'))throw Error('该 HTML 页面没有可识别的论文段落，请换一篇论文。');
       if(controller.signal.aborted)return;
-      try{await savePaper(next);setLibraryRevision(n=>n+1);}catch{storageFailed();}
-      const restored=await restoreResults(next,(await readPaper(target).catch(()=>{storageFailed();return undefined;}))?.results||record?.results);
+      try{if(!record||saved?.needsParse)await savePaper(next);else await touchPaper(next.source);setLibraryRevision(n=>n+1);}catch{storageFailed();}
+      const restored=await restoreResults(next,record?.results);
       if(controller.signal.aborted)return;
-      const latest=await readPaper(target).catch(()=>{storageFailed();return undefined;});if(controller.signal.aborted)return;
-      currentPaper.current=next;setPaper(next);setResults({...restored,...latest?.results});setErrors({});setFatal('');setActive('abstract');setImportValue(next.source);if(innerWidth<1100)setSide(false);
+      currentPaper.current=next;setPaper(next);setResults(restored);setImportError('');setErrors({});setFatal('');setActive('abstract');setShelf(false);setShowImport(false);setImportValue('');if(innerWidth<1100)setSide(false);
       try{localStorage.setItem('reader-last-source',next.source);}catch{/* Reading still works without storage. */}
       if(next.source!==SOURCE && currentSettings.current.provider==='demo') {
         setSettings(s=>({...s,provider:'llm'}));
         toast('论文已导入。请在「翻译设置」填写 API，随后翻译段落或全文。');
       } else toast(Object.keys(restored).length?`论文已打开，已恢复 ${Object.keys(restored).length} 段译文。`:record?'已从论文记录打开。':'论文已导入并保存到论文记录。');
       window.scrollTo({top:0});
-    }catch(e){if(!controller.signal.aborted){setImportError(e instanceof Error?e.message:String(e));if(initial&&target!==SOURCE){toast('上次论文暂时无法加载，先打开示例论文。');void importPaper(SOURCE);}}}
+    }catch(e){if(!controller.signal.aborted){setShowImport(true);setImportError(e instanceof Error?e.message:String(e));if(initial&&target!==SOURCE){toast('上次论文暂时无法加载，先打开示例论文。');void importPaper(SOURCE);}}}
     finally{if(importController.current===controller)setImporting(false);}
   }
-  function jump(id:string) {readerRef.current?.jump(id);}
+  function jump(id:string) {readerRef.current?.jump(id);if(innerWidth<1100)setSide(false);}
   function toast(text:string) {setNotice(text);setTimeout(()=>setNotice(''),4000);}
   function closeFormula(){formulaController.current?.abort();formulaController.current=undefined;setFormula(undefined);}
   async function explainFormula(target:FormulaTarget,force=false){
@@ -211,20 +279,30 @@ function App() {
   const displayBusy={...busy,...(paperTask?.activeId&&taskBusy?{[paperTask.activeId]:true}:{})};
   const displayErrors={...errors,...(paperTask?.error&&paperTask.status==='failed'&&paperTask.activeId?{[paperTask.activeId]:paperTask.error}:{})};
   return <div className={'app'+(side?' sidebar-visible':'')}>
-    <header className="topbar"><button className="mobile-menu icon-button" aria-label="打开目录" onClick={()=>setSide(!side)}>☰</button><a className="brand" href="#"><span className="brand-mark">{icons.book}</span><strong>笺读</strong><span className="brand-divider"/><span className="brand-sub">论文双语阅读</span></a><div className="header-actions"><span className="local-status">{configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span><button className="settings-button" onClick={()=>setDialog(true)}>{icons.settings} <span>翻译设置</span></button></div></header>
-    <aside className={'sidebar '+(side?'open':'')}><PaperLibrary revision={libraryRevision} current={paper?.source} disabled={importing} onOpen={source=>void importPaper(source)} onError={toast}/><Directory paper={paper} settings={settings} active={active} importing={importing} onJump={jump}/><div className="sidebar-bottom"><div className="protected-icon">⌁</div><div><strong>保留每一个细节</strong><p>公式、引用与文件名原样保护</p></div><span className="green-dot"/></div></aside>
+    <header className="topbar"><a className="brand" href="#"><img width="32" height="32" alt="" src="/jiandu.svg"/><strong>笺读</strong><span className="brand-divider"/><span className="brand-sub">论文双语阅读</span></a><div className="header-actions"><button className="open-import" aria-expanded={showImport||!paper} aria-controls="paper-import" onClick={()=>{setShowImport(!showImport);if(!showImport)window.scrollTo({top:0});}}>＋ 导入论文</button><span className="local-status">{configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span><button className="settings-button" onClick={()=>setDialog(true)}>翻译设置</button></div></header>
+    <aside id="reading-sidebar" className={'sidebar '+(side?'open':'')} aria-label="阅读导航">
+      <div className="shelf-identity"><img src="/jiandu.svg" alt="" width="46" height="46"/><div><strong>笺读</strong><small>论文阅读室</small></div>{side&&<SidebarToggle expanded onToggle={toggleSidebar}/>}</div>
+      <div className="shelf-switch" aria-label="侧栏视图">
+        <button aria-pressed={!shelf} onClick={()=>setShelf(false)}>论文目录</button>
+        <button aria-pressed={shelf} onClick={()=>setShelf(true)}>我的藏书</button>
+      </div>
+      <div hidden={shelf}><Directory paper={paper} settings={settings} active={active} importing={importing} onJump={jump}/></div>
+      {shelf&&<Suspense fallback={<p>载入藏书…</p>}><PaperLibrary revision={libraryRevision} current={paper?.source} disabled={importing} onOpen={source=>void importPaper(source)} onError={toast}/></Suspense>}
+    </aside>
     <SidebarResize open={side} onError={()=>toast('侧栏宽度已调整，但保存失败，请检查浏览器本地存储权限。')}/>
-    <main className="main"><div className="reading-toolbar"><div className="breadcrumb">我的阅读 <span>/</span> {paper?sourceLabel(paper.source):'HTML'} 论文 <span>/</span> <b>{paper?.id||'导入论文'}</b></div><div className="reading-options"><div className="mode-switch">{[['original','原文'],['bilingual','双语'],['translated','译文']].map(([value,label])=><button className={mode===value?'selected':''} key={value} onClick={()=>setMode(value)}>{label}</button>)}</div><button className="icon-button font-control" aria-label="调整字号" onClick={()=>setFont(font===19?16:font+1)}>Aa</button><button className="icon-button" aria-label="切换深色模式" onClick={()=>setDark(!dark)}>{dark?'☀':'☾'}</button></div></div>
-      <section className="import-panel" aria-label="导入论文 HTML"><form onSubmit={e=>{e.preventDefault();void importPaper(importValue);}}><label htmlFor="arxiv-input">导入论文 HTML</label><div className="import-input-row"><input id="arxiv-input" value={importValue} onChange={e=>setImportValue(e.target.value)} placeholder="粘贴 arXiv / Nature / PMC 网址或 arXiv 编号" required/><button className="primary-button" type="submit" disabled={importing}>{importing?'正在导入…':'导入论文 →'}</button></div></form><p>支持 arXiv、Nature、PMC 的公开 HTML 全文；同一论文的来源版本可在侧栏归并。<button onClick={()=>void importPaper(SOURCE)} disabled={importing}>打开示例论文</button></p>{importError&&<div className="inline-error" role="alert">{importError} {paper&&'当前论文仍可阅读。'}</div>}</section>
+    <main className="main"><div className="reading-toolbar"><div className="breadcrumb">{!side&&<SidebarToggle expanded={false} onToggle={toggleSidebar}/>}<strong>阅读</strong>{paper&&<span className="source-stamp">{sourceLabel(paper.source)}</span>}</div><div className="reading-options"><div className="mode-switch">{[['original','原文'],['bilingual','双语'],['translated','译文']].map(([value,label])=><button className={mode===value?'selected':''} key={value} aria-pressed={mode===value} onClick={()=>setMode(value)}>{label}</button>)}</div><button className="icon-button font-control" aria-label="调整字号" title={`调整字号（当前 ${font} px）`} onClick={changeFont}>Aa</button><button className="icon-button" aria-label="切换深色模式" aria-pressed={dark} title={dark?"切换到浅色":"切换到深色"} onClick={changeTheme}>{dark?'☀':'☾'}</button></div></div>
+      {(showImport||!paper)&&<section id="paper-import" className="import-panel" aria-label="导入论文 HTML"><form onSubmit={e=>{e.preventDefault();void importPaper(importValue);}}><label htmlFor="arxiv-input">导入论文 HTML</label><div className="import-input-row"><input id="arxiv-input" autoFocus={showImport} value={importValue} onChange={e=>setImportValue(e.target.value)} placeholder="粘贴 arXiv / Nature / PMC 网址或 arXiv 编号" required/><button className="primary-button" type="submit" disabled={importing}>{importing?'正在导入…':'导入论文 →'}</button></div></form><p>支持 arXiv、Nature、PMC 的公开 HTML 全文；同一论文的来源版本可在侧栏归并。<button onClick={()=>void importPaper(SOURCE)} disabled={importing}>打开示例论文</button></p>{importError&&<div className="inline-error" role="alert">{importError} {paper&&'当前论文仍可阅读。'}</div>}</section>}
       {fatal?<div className="error-banner">{fatal}</div>:!paper?<div className="loading">正在整理论文结构…</div>:<>
       <div className="article-wrap">
-        <div className="reader-actions"><div className="reader-source"><span>{sourceLabel(paper.source)}: {paper.id}</span><a href={paper.source} target="_blank" rel="noreferrer">原网页 ↗</a>{sourceKind(paper.source)!=='pmc'&&<a href={sourceKind(paper.source)==='arxiv'?paper.source.replace('/html/','/pdf/'):paper.source+'.pdf'} target="_blank" rel="noreferrer">PDF ↗</a>}<span className="formula-hint">点击公式可解释</span></div><div className="reader-translate-actions"><button className="secondary-button" onClick={()=>void translateAll('body')} disabled={importing||taskBusy||Object.values(busy).some(Boolean)}>{settings.provider==='demo'?'载入示例译文':'翻译正文'}</button><button className="secondary-button" onClick={()=>void translateAll('captions')} disabled={importing||taskBusy||Object.values(busy).some(Boolean)}>翻译图表说明</button><button className="primary-button" onClick={()=>void translateAll('all')} disabled={importing||taskBusy||Object.values(busy).some(Boolean)}>全文＋图表</button></div></div>
+        <div className="reader-actions"><div className="reader-source"><span>{sourceLabel(paper.source)}: {paper.id}</span><a href={paper.source} target="_blank" rel="noreferrer">原网页 ↗</a>{sourceKind(paper.source)!=='pmc'&&<a href={sourceKind(paper.source)==='arxiv'?paper.source.replace('/html/','/pdf/'):paper.source+'.pdf'} target="_blank" rel="noreferrer">PDF ↗</a>}<span className="formula-hint">点击公式可解释</span></div><select className="translate-menu" aria-label="批量翻译" value="" disabled={importing||taskBusy||Object.values(busy).some(Boolean)} onChange={e=>{if(e.target.value)void translateAll(e.target.value as TranslationScope);}}>
+          <option value="" disabled>批量翻译…</option><option value="body">{settings.provider==='demo'?'载入示例译文':'翻译正文'}</option>
+          <option value="captions">翻译图表说明</option><option value="all">翻译全文与图表</option>
+        </select></div>
         <PaperReader ref={readerRef} html={paper.html} source={paper.source} paperTitle={paper.title} blocks={paper.blocks} mode={mode} font={font} dark={dark} results={results} busy={displayBusy} errors={displayErrors} importing={importing} onTranslate={id=>{const block=paper.blocks.find(b=>b.id===id);if(block)void translate(block,!!results[id]);}} onSelection={(text,block)=>{closeFormula();setSelection({text,block});}} onFormula={target=>void explainFormula(target)} onActive={setActive}/>
-        <footer className="article-footer">{sourceLabel(paper.source)}: {paper.id}<span>保留论文结构 · 独立版本缓存</span></footer>
       </div>
       </>}
     </main>
-    <div className="bottom-status"><span><i/> {paper?`${paper.blocks.filter(b=>b.kind==='paragraph').length} 个正文段落`:'加载中'} <b>·</b> 已显示 {count} 项译文</span><span>{tasks.some(t=>['running','queued','pausing'].includes(t.status))?'后台翻译任务运行中':'原文可随时核对'}<span className="desktop-only"> · arXiv / Nature / PMC</span></span></div>
+    <div className="bottom-status"><span><i/> {paper?`${paper.blocks.filter(b=>b.kind==='paragraph').length} 个正文段落`:'加载中'} <b>·</b> 已显示 {count} 项译文</span><span>{tasks.some(t=>['running','queued','pausing'].includes(t.status))?'后台翻译任务运行中' :configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span></div>
     <TranslationTaskBar tasks={tasks} onPause={source=>taskQueue.current!.pause(source)} onResume={source=>taskQueue.current!.resume(source)} onCancel={source=>taskQueue.current!.cancel(source)} onDismiss={source=>taskQueue.current!.dismiss(source)} onOpen={source=>void importPaper(source)}/>
     {notice&&<div className="toast" role="status">{notice}</div>}
     {selection&&<div className="selection-panel" role="dialog" aria-label="划句翻译"><div className="selection-header"><strong>划句翻译</strong><button aria-label="关闭划句翻译" onClick={()=>setSelection(undefined)}>×</button></div><p className="selected-text">{selection.text}</p>{selection.result?<div className="selection-result" dangerouslySetInnerHTML={{__html:clean(selection.result)}}/>:<p className="selection-helper">将结合所在段落理解这段文字，文件名保持原样。</p>}<button className="primary-button" disabled={selection.loading} onClick={translateSelection}>{selection.loading?'正在翻译…':'翻译选区 →'}</button></div>}

@@ -37,3 +37,25 @@ html[data-theme=dark] .inline-error,html[data-theme=dark] .error-banner{backgrou
 
 .library-work-title{display:block;font-size:17px;line-height:1.65;font-weight:500}.library-versions{margin:8px 0;border-left:2px solid var(--line);padding-left:8px}.library-version{display:flex;align-items:center;border-radius:4px}.library-version.active{background:var(--soft)}.library-version .library-open{min-width:0;flex:1}.library-version .library-open strong{font-size:15px}.version-detach{font-size:12px;color:var(--muted);padding:5px}.work-options{display:flex;flex-wrap:wrap;gap:6px}.work-options select{max-width:100%;min-width:0;font-size:13px}
 .translation-taskbar{position:fixed;right:20px;bottom:43px;width:350px;max-width:calc(100vw - 24px);background:var(--paper);color:var(--text);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px #0002;z-index:50;overflow:hidden}.taskbar-toggle{display:flex;width:100%;align-items:center;gap:12px;padding:12px 14px;text-align:left;font-size:12px}.taskbar-toggle strong{font-size:14px}.taskbar-toggle span:last-child{margin-left:auto;color:var(--muted)}.taskbar-list{max-height:40vh;overflow:auto;padding:0 14px}.translation-task{padding:12px 0;border-top:1px solid var(--line)}.task-paper{display:block;width:100%;text-align:left;font-size:13px;line-height:1.5;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text)}.task-paper:hover{color:var(--accent)}.task-progress{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin:9px 0 5px;color:var(--accent)}.translation-task progress{display:block;width:100%;height:5px;accent-color:var(--accent)}.task-detail,.task-error{font-size:11px;line-height:1.6;overflow-wrap:anywhere;margin:7px 0;color:var(--muted)}.task-error{color:#964f40}html[data-theme=dark] .task-error{color:#ddb19a}.task-controls{display:flex;justify-content:flex-end;gap:14px;margin-top:8px}.task-controls button{font-size:12px;color:var(--accent);padding:3px 0}.taskbar-note{font-size:11px;color:var(--muted);line-height:1.7;margin:0;padding:9px 14px;border-top:1px solid var(--line)}@media(max-width:650px){.translation-taskbar{right:10px;bottom:40px;width:320px}.taskbar-list{max-height:30vh}}
+
+/* Keep the paper viewport bounded so offscreen figures can stay deferred. */
+.app .main {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--chrome-top, 60px) - 30px);
+  min-height: 0;
+  padding-bottom: 0;
+}
+.main > .reading-toolbar, .main > .import-panel, .main > .article-wrap {
+  width: 100%;
+  flex-shrink: 0;
+}
+.main > .article-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 160px;
+  min-height: 0;
+  margin-bottom: 10px;
+}
+.article-wrap > .reader-actions { flex-shrink: 0; }
+.article-wrap > .native-reader { flex: 1; min-height: 0; }

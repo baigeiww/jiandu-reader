@@ -1,3 +1,4 @@
+import {readUtf8Body} from './server/request-body';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 
 // The real credential stays on this Mac; only this fixed API is reachable.
@@ -16,12 +17,12 @@ export function localDeepSeek(apiKey:string,request:typeof fetch=fetch){
     const controller=new AbortController();
     res.once('close',()=>controller.abort());
     try{
-      let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>1024*1024)return reply(413,{error:{message:'请求过大'}});}
+      const raw=await readUtf8Body(req,1024*1024);if(raw===undefined)return reply(413,{error:{message:'请求过大'}});
       const body=JSON.parse(raw);
       if(!Array.isArray(body.messages)||typeof body.model!=='string'||body.stream)return reply(400,{error:{message:'需要非流式对话请求'}});
       const upstream=await request('https://api.deepseek.com/v1/chat/completions',{
         method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
-        body:JSON.stringify(body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(90000)])
+        body:raw,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(90000)])
       });
       const content=(await upstream.text()).split(apiKey).join('[密钥已隐藏]');
       if(res.destroyed)return;

@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {sourceLabel} from './sources';
 import {modelRequest} from './modelApi';
 import {googleTranslate,googleTranslateBatch} from './google';
-import {readPaper,saveDirectory,type Paper,type DirectoryLabels} from './library';
+import {readNotes,saveDirectory,type Paper,type DirectoryLabels} from './library';
 import type {Settings} from './settings';
 import {knownHeading,splitHeading,parseDirectoryResponse,type DirectoryItem} from './directory';
 
@@ -14,7 +14,7 @@ export function Directory({paper,settings,active,importing,onJump}:{paper?:Paper
     setLabels({});setError('');setBusy(true);
     void (async()=>{
       try{
-        const record=await readPaper(paper.source);if(!live)return;
+        const record=await readNotes(paper.source);if(!live)return;
         const restored:Record<string,string>={};const pending:DirectoryItem[]=[];
         for(const item of items){const saved=record?.headings?.[item.id];const known=knownHeading(item.text);if(saved?.original===item.text)restored[item.id]=saved.translated;else if(known)restored[item.id]=known;else pending.push(item);}
         setLabels(restored);
@@ -43,9 +43,13 @@ export function Directory({paper,settings,active,importing,onJump}:{paper?:Paper
     return()=>{live=false;controller.abort();};
   },[paper,settings,importing,retry]);
   const headings=paper?.blocks.filter(b=>b.kind==='heading')||[];
-  return <><div className="workspace-label directory-title">当前论文目录 <span>{busy?'翻译目录中…':'中文目录'}</span></div>
-    <div className="paper-card"><span className="tiny-label">{paper?sourceLabel(paper.source):'论文'} · HTML 阅读</span><h3 title={paper?.title}>{labels.__paper_title__||paper?.title||'载入论文中…'}</h3><div className="paper-id">{paper?.id||'—'} <span>HTML</span></div>{paper&&<div className="paper-source-info"><span>论文 HTML 网址</span><p>{paper.source}</p></div>}</div>
+  return <><div className="paper-card">
+    <span className="tiny-label">正在阅读</span>
+    <h3 title={paper?.title}>{labels.__paper_title__||paper?.title||'载入论文中…'}</h3>
+    {paper&&<a className="paper-id" href={paper.source} title={paper.source} target="_blank" rel="noreferrer">{sourceLabel(paper.source)} · {paper.id} ↗</a>}
+    </div>
+    <div className="workspace-label directory-title">章节 <span>{busy?'翻译目录中…':headings.length}</span></div>
     {error&&<div className="directory-error" role="status">{error}<button disabled={busy||importing} onClick={()=>setRetry(n=>n+1)}>重试</button></div>}
-    <nav aria-label="论文中文目录">{headings.map(h=><button key={h.id} title={h.text} className={(active===h.id?'active ':'')+(h.level>2?'sub':'')} onClick={()=>onJump(h.id)}><span className="nav-dot"/>{labels[h.id]||knownHeading(h.text)||h.text}</button>)}</nav>
+    <nav aria-label="论文中文目录">{headings.map(h=><button key={h.id} title={h.text} aria-current={active===h.id?"location":undefined} className={(active===h.id?'active ':'')+(h.level>2?'sub':'')} onClick={()=>onJump(h.id)}><span className="nav-dot"/>{labels[h.id]||knownHeading(h.text)||h.text}</button>)}</nav>
   </>;
 }

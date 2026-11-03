@@ -1,51 +1,109 @@
+<div align="center">
+
+<img src="public/jiandu.svg" width="84" height="84" alt="笺读图标" />
+
 # 笺读
 
-在 Mac 上对照阅读英文论文。粘贴 arXiv、Nature 或 PMC 的 HTML 全文链接，即可逐段翻译、查看图注，或点选公式了解符号在当前段落中的含义。论文快照和已完成的译文保存在本机。
+**在 Mac 上安静地读懂一篇论文。**
 
-## 选择版本
+保留原文结构 · 逐段双语对照 · 公式解释 · 本机论文库
 
-| 版本 | 窗口与阅读体验 | 同篇论文空闲内存¹ |
-| --- | --- | ---: |
-| **Mac 原生版（当前）** | AppKit 窗口，使用系统 WebKit 排版 | **约 344 MiB** |
-| [Mac Electron 版](https://github.com/baigeiww/jiandu-reader/tree/mac-electron) | 旧版独立桌面窗口，内置 Chromium | 约 596 MiB |
-| [初始网页版](https://github.com/baigeiww/jiandu-reader/tree/50232f24a8e5e964b05720cc48f9a2575ce2b196) | 在浏览器中阅读 | — |
+[下载安装](https://github.com/baigeiww/jiandu-reader/releases/latest) · [本版更新](docs/releases/v0.4.0.md) · [反馈问题](https://github.com/baigeiww/jiandu-reader/issues)
 
-¹ 在同一台 Apple Silicon Mac 上打开同一篇示例论文并静置，合计应用、渲染和本地服务进程的 RSS。共享内存可能重复计入。按此口径，原生版比 Electron 版低约 42%。
+</div>
 
-## 从源码启动原生版
+笺读是一款面向英文论文阅读的 Mac 桌面应用。导入 arXiv、Nature 或 PMC 的 HTML 全文，在原文、双语和译文之间切换。正文、公式、图表和引用尽量沿用来源论文的结构，译文按段落保存，方便下次接着读。
 
-在 Apple Silicon Mac 上准备 Xcode Command Line Tools 和 **Node.js 22**（实测 22.23.4，建议使用官方 macOS 二进制包）。在仓库目录执行：
+当前主分支是 **v0.4.0 Mac 原生版**，使用 AppKit 窗口和 macOS 系统 WebKit。应用内置本机服务及运行环境，安装后直接启动。
+
+## 安装与首次使用
+
+**系统要求**　Apple Silicon Mac（M1 及更新芯片），macOS 13 或更新系统。当前安装包为 arm64，尚未提供 Intel 安装包。
+
+1. 在 [Releases](https://github.com/baigeiww/jiandu-reader/releases/latest) 下载 `Jiandu-0.4.0-macOS-arm64.dmg`。
+2. 打开 DMG，将「笺读」拖入「Applications」，推出磁盘映像，再从「应用程序」启动。
+3. 导入论文 HTML 链接或 arXiv 编号，也可以先打开内置示例。
+4. 需要 AI 翻译时，打开「翻译设置」，填写自己的服务地址、模型和 API Key，测试连接后保存。
+
+此版本采用本机临时签名，尚未通过 Apple 公证。若首次启动被 macOS 阻止，先尝试打开一次，再到「系统设置 → 隐私与安全性」核对来源，选择「仍要打开」。[Apple 的打开说明](https://support.apple.com/zh-cn/102445)
+
+发布页同时提供 `SHA256SUMS.txt`。在下载目录可用下面的命令核对安装包。
 
 ```sh
-npm ci
-npm run desktop:build
-open ./笺读.app
+shasum -a 256 -c SHA256SUMS.txt
 ```
 
-以后直接双击项目目录里的 **笺读.app**。阅读服务使用本机端口 5173，关闭最后一个窗口即退出。重新构建前，请先退出并移开已有的同名应用。
+## 可以做什么
 
-**配置 DeepSeek**　需要 AI 翻译或公式解释时，在应用旁新建 `.env.local`，填入下面一行，将占位文字替换为自己的 Key，然后重启应用。本机服务负责发送请求。也可在「翻译设置」中管理自己的接口和模型。
+| 阅读时需要 | 笺读提供 |
+| --- | --- |
+| 对照原文 | 原文、双语、译文三种视图，按段翻译、选区翻译、正文和图注翻译 |
+| 理解公式 | 点选公式，查看符号及当前上下文中的模型解释 |
+| 看清论文图片 | 宽图、多子图和竖图随阅读区域缩放，点图查看完整图片，Esc 返回 |
+| 整理阅读资料 | 本机收藏、分组、版本归并、已译段数及数据导入导出 |
+| 舒适阅读 | 暖色浅色界面、深色模式、字号调整、可收起和调宽的侧栏 |
+| 自选 AI 服务 | DeepSeek 等 Chat Completions 接口、Messages 格式接口、多配置及术语表 |
+| 用键盘操作 | 原生菜单、快捷键、可聚焦的公式和图片，以及辅助功能标签 |
+
+`⌘O` 导入论文，`⌘,` 打开翻译设置，`⌃⌘S` 切换侧栏。图片预览和设置窗口都支持 Esc 关闭。
+
+**导入范围**　arXiv PDF 链接会转换为对应 HTML 来源，需要该论文已提供 HTML 全文。当前阅读流程面向网页全文，图片或在线资源的可用性取决于原站。
+
+## 轻量化的实现
+
+应用使用 AppKit 管理窗口，系统 WKWebView 排版论文，随应用打包的 Node.js 服务处理论文获取和模型请求。服务仅监听 `127.0.0.1:5173`，关闭最后一个窗口即退出。
+
+新版按窗口大小约束阅读区域，将论文正文与列表元数据分开存储，减少重复正文和反复写入。全图预览在打开时创建，关闭时释放预览节点。
+
+同一台 Apple Silicon Mac、同篇示例论文的本机测量中，打开后各相关进程 RSS 中位数由约 **365 MiB 降至 318 MiB**，滚动和切换视图后由约 **565 MiB 降至 325 MiB**。统计合计应用、WebKit 相关进程和本机服务，RSS 可能重复计算共享内存。实际占用随论文长度、图像和操作变化。
+
+## 配置、数据与升级
+
+推荐通过应用内的「翻译设置」管理 API 配置。也可在应用旁放置 `.env.local`，使用本机服务管理 DeepSeek 密钥，修改后重启应用。
 
 ```dotenv
 DEEPSEEK_API_KEY=替换为自己的密钥
 ```
 
-## 阅读一篇论文
+论文快照、译文和手动填写的接口配置保存在本机 WebKit 存储中。AI 翻译及公式解释会将所需论文片段发送到所选服务。手动填写的 API Key 以明文保存，导出的阅读数据也可能包含密钥，请妥善保存备份。
 
-1. **导入**　粘贴论文网址或 arXiv 编号，也可打开内置示例。arXiv PDF 链接会转换为 HTML 来源，需要该论文提供 HTML 全文。
-2. **对照**　在原文、双语和译文视图间切换。支持翻译单段、选区、正文和图注，已完成的段落会保存，重新打开可继续。
-3. **理解公式**　点击公式或用键盘聚焦并按 Enter，在浮窗中查看符号、位置和模型解释。公式、引用和表格都保留在正文里。
-4. **整理**　在侧栏创建分组、归并版本、查看已译段数。不同客户端各自保存论文库。
+**升级原生版**　先退出旧版，再替换应用。应用标识保持为 `com.baigeiww.jiandu-reader`，沿用同一套本机阅读数据。建议替换前导出一次阅读数据。
 
-**从旧版迁移**　在旧版侧栏点击「导出阅读数据」，然后在原生版选择「导入阅读数据」。导入会核对论文、译文、分组和配置。备份可能含手动填写的 API Key，请保存在自己的设备上。
+**从 Electron 或网页版迁移**　在旧版「我的藏书」导出阅读数据，再在新版导入。不同客户端各自保存阅读库。
 
-## 开发与验证
+**端口占用**　如启动提示阅读服务停止，请先退出其他笺读实例，或停止使用本机 5173 端口的开发服务。
+
+## 从源码构建
+
+准备 Apple Silicon 版 **Node.js 22** 和 Xcode Command Line Tools。仓库中不包含 API Key，示例模式可用于验证阅读界面。
+
+```sh
+ git clone https://github.com/baigeiww/jiandu-reader.git
+ cd jiandu-reader
+ npm ci
+ npm run desktop:build
+ open ./笺读.app
+```
+
+重新构建前，退出并移开已有同名应用。安装包无需使用者另装 Node.js，源码构建需要 Node.js。
 
 | 命令 | 用途 |
 | --- | --- |
-| `npm run dev` | 在浏览器中调试阅读界面 |
-| `npm test` | 验证解析、翻译、存储、备份和本机服务 |
-| `npm run build` | 构建网页和本机服务 |
-| `npm run desktop:build` | 构建并打包 Mac 原生应用 |
+| `npm run dev` | 在浏览器中调试 |
+| `npm test` | 解析、翻译、存储、备份和服务测试 |
+| `npm run test:mac` | 在 Mac 系统 WebKit 中验证阅读交互及图片布局 |
+| `npm run build` | 构建前端和本机服务 |
+| `npm run desktop:build` | 打包 Mac 应用 |
+| `npm run desktop:release` | 构建 DMG 和 SHA-256 校验文件，输出到 `output/releases/v0.4.0/` |
 
-阅读界面位于 [src/](src/)，原生窗口位于 [native/](native/)，本地 HTTP 服务位于 [server/](server/)。[示例论文](https://arxiv.org/abs/2602.04299) 及其内容归原权利人，随附的 ar5iv 样式使用 [MIT 许可证](public/vendor/ar5iv/LICENSE)。
+源码分别位于 [src/](src/)、[native/](native/) 和 [server/](server/)。发布包只收集构建产物、运行环境和第三方许可，打包流程不复制项目目录或本机阅读库。仓库的 Release 工作流会在主分支版本更新时构建安装包，也支持手动运行。
+
+## 历史版本与内容权利
+
+| 版本 | 位置 |
+| --- | --- |
+| 当前 Mac 原生版 | [main](https://github.com/baigeiww/jiandu-reader/tree/main) |
+| 归档 Mac Electron 版 | [mac-electron](https://github.com/baigeiww/jiandu-reader/tree/mac-electron) |
+| 初始网页版 | [初始提交](https://github.com/baigeiww/jiandu-reader/tree/50232f24a8e5e964b05720cc48f9a2575ce2b196) |
+
+[示例论文](https://arxiv.org/abs/2602.04299) 及其图像、文字归原权利人。随附 ar5iv 样式采用 [MIT 许可证](public/vendor/ar5iv/LICENSE)，其他运行时及组件许可见 [native/licenses/](native/licenses/)。

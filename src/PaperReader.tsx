@@ -1,43 +1,65 @@
 import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {formulaTarget,type FormulaTarget} from './formula';
 import {createReaderUpdates} from './readerDom';
+import {enableFigurePreview} from './figurePreview';
 
 type Block={id:string;kind:string;text:string;level:number};
 type Result={html:string;type:string};
 export type PaperReaderHandle={jump:(id:string)=>void};
 type Props={html:string;source:string;paperTitle:string;blocks:Block[];mode:string;font:number;dark:boolean;results:Record<string,Result>;busy:Record<string,boolean>;errors:Record<string,string>;importing:boolean;onTranslate:(id:string)=>void;onSelection:(text:string,id:string)=>void;onFormula:(target:FormulaTarget)=>void;onActive:(id:string)=>void};
 
+function headingNode(doc:Document,id:string){
+  return doc.getElementById(id)||(id==='abstract'?doc.querySelector('.ltx_abstract'):id==='references'?doc.querySelector('.ltx_bibliography'):null);
+}
+
 export const PaperReader=forwardRef<PaperReaderHandle,Props>(function PaperReader(props,ref){
   const frame=useRef<HTMLIFrameElement>(null);
   const latest=useRef(props);latest.current=props;
   const update=useRef<ReturnType<typeof createReaderUpdates>>(undefined);
   const [loaded,setLoaded]=useState(0);
-  const [height,setHeight]=useState(900);
+  function scrollToAnchor(node:Element){
+    const view=node.ownerDocument.defaultView;
+    if(!view)return;
+    const top=view.scrollY+node.getBoundingClientRect().top-20;
+    // A long animated jump would paint every figure between the two sections.
+    const nearby=Math.abs(top-view.scrollY)<view.innerHeight;
+    const animate=nearby&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    view.scrollTo({top,behavior:animate?'smooth':'instant'});
+  }
   useImperativeHandle(ref,()=>({jump(id){
     const doc=frame.current?.contentDocument;
-    const target=doc?.getElementById(id)||(id==='abstract'?doc?.querySelector('.ltx_abstract'):id==='references'?doc?.querySelector('.ltx_bibliography'):null);
-    if(target&&frame.current){const top=window.scrollY+frame.current.getBoundingClientRect().top+target.getBoundingClientRect().top-110;window.scrollTo({top,behavior:'smooth'});}
+    const target=doc&&headingNode(doc,id);
+    if(target)scrollToAnchor(target);
   }}),[]);
   useEffect(()=>{
     const doc=frame.current?.contentDocument;if(!doc||!loaded)return;
     update.current=createReaderUpdates(doc,props.blocks);
     update.current(latest.current.results,latest.current.busy,latest.current.errors,latest.current.importing);
-    const resize=()=>{const content=doc.querySelector('.ltx_page_content');if(content)setHeight(Math.ceil(content.getBoundingClientRect().bottom)+8);};
-    const observer=new ResizeObserver(resize);observer.observe(doc.body);resize();
+    const view=doc.defaultView;if(!view)return;
+    const figures=enableFigurePreview(doc);
+    view.scrollTo({top:0,behavior:'instant'});
     const click=(event:MouseEvent)=>{
       const target=event.target as Element;
       const action=target.closest<HTMLButtonElement>('button[data-translate]');
       if(action){event.preventDefault();latest.current.onTranslate(action.dataset.translate!);return;}
+      if(!doc.getSelection()?.toString().trim()&&figures.open(target)){event.preventDefault();return;}
       if(target.closest('math:not(.technical-literal)') && !frame.current?.contentWindow?.getSelection()?.toString().trim()){
         const formula=formulaTarget(target,props.source,props.paperTitle);
         if(formula){event.preventDefault();latest.current.onFormula(formula);return;}
       }
       const link=target.closest<HTMLAnchorElement>('a[href^="#"]');
-      if(link){event.preventDefault();const id=decodeURIComponent(link.getAttribute('href')!.slice(1));const node=doc.getElementById(id);if(node&&frame.current)window.scrollTo({top:window.scrollY+frame.current.getBoundingClientRect().top+node.getBoundingClientRect().top-100,behavior:'smooth'});}
+      if(link){
+        event.preventDefault();
+        let id=link.hash.slice(1);
+        try{id=decodeURIComponent(id);}catch{/* Some publisher anchors contain a literal percent sign. */}
+        const node=doc.getElementById(id);
+        if(node)scrollToAnchor(node);
+      }
     };
     const keydown=(event:KeyboardEvent)=>{
       if(event.key!=='Enter'&&event.key!==' ')return;
       const target=event.target as Element;
+      if(figures.open(target)){event.preventDefault();return;}
       if(!target.matches('math:not(.technical-literal)'))return;
       const formula=formulaTarget(target,props.source,props.paperTitle);
       if(formula){event.preventDefault();latest.current.onFormula(formula);}
@@ -49,23 +71,37 @@ export const PaperReader=forwardRef<PaperReaderHandle,Props>(function PaperReade
       const paragraph=element?.closest('[data-reader-block]');if(paragraph)latest.current.onSelection(text,paragraph.getAttribute('data-reader-block')!);
     };
     doc.addEventListener('click',click);doc.addEventListener('keydown',keydown);doc.addEventListener('mouseup',select);doc.addEventListener('touchend',select);
-    const headings=props.blocks.filter(b=>b.kind==='heading').map(b=>({id:b.id,node:doc.getElementById(b.id)}));
+    const headings=props.blocks.filter(b=>b.kind==='heading')
+      .flatMap(b=>{const node=headingNode(doc,b.id);return node?[{id:b.id,node}]:[];});
     let scheduled=0;
-    const readScroll=()=>{
+    function readScroll(){
       scheduled=0;
-      if(!frame.current)return;const offset=frame.current.getBoundingClientRect().top;
-      let active='abstract';for(const b of headings) {if(b.node&&offset+b.node.getBoundingClientRect().top<170)active=b.id;}
-      latest.current.onActive(active);
-    };
+      // Headings are in reading order. Locate the current section without measuring every title.
+      let low=0,high=headings.length;
+      while(low<high){
+        const mid=(low+high)>>>1;
+        if(headings[mid].node.getBoundingClientRect().top<=40)low=mid+1;
+        else high=mid;
+      }
+      latest.current.onActive(low?headings[low-1].id:'abstract');
+    }
     const scroll=()=>{if(!scheduled)scheduled=requestAnimationFrame(readScroll);};
-    window.addEventListener('scroll',scroll,{passive:true});
-    return()=>{update.current=undefined;cancelAnimationFrame(scheduled);observer.disconnect();doc.removeEventListener('click',click);doc.removeEventListener('keydown',keydown);doc.removeEventListener('mouseup',select);doc.removeEventListener('touchend',select);window.removeEventListener('scroll',scroll);};
+    doc.addEventListener('scroll',scroll,{passive:true,capture:true});
+    const layout=new ResizeObserver(scroll);layout.observe(doc.body);
+    return()=>{
+      update.current=undefined;cancelAnimationFrame(scheduled);layout.disconnect();figures.dispose();
+      doc.removeEventListener('scroll',scroll,true);
+      doc.removeEventListener('click',click);doc.removeEventListener('keydown',keydown);
+      doc.removeEventListener('mouseup',select);doc.removeEventListener('touchend',select);
+    };
   },[loaded,props.blocks,props.source,props.paperTitle]);
   useEffect(()=>{
     const doc=frame.current?.contentDocument;if(!doc||!loaded)return;
     doc.documentElement.dataset.theme=props.dark?'dark':'light';doc.body.dataset.mode=props.mode;doc.documentElement.style.fontSize=props.font+'px';
   },[loaded,props.mode,props.font,props.dark]);
   useEffect(()=>{update.current?.(props.results,props.busy,props.errors,props.importing);},[loaded,props.blocks,props.results,props.busy,props.errors,props.importing]);
-  const srcDoc=useMemo(()=>`<!doctype html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/vendor/ar5iv/ar5iv.0.9.1.min.css"><link rel="stylesheet" href="/reader-native.css"></head><body><main class="ltx_page_main"><div class="ltx_page_content">${props.html}</div></main></body></html>`,[props.html]);
-  return <iframe ref={frame} className="native-reader" title="论文原文与双语阅读" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={srcDoc} style={{height}} onLoad={()=>setLoaded(n=>n+1)}/>;
+  // WebKit needs an event-capable document for listeners installed by the parent.
+  // The article CSP forbids its own scripts; the outer page forbids frame URL navigation.
+  const srcDoc=useMemo(()=>`<!doctype html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/vendor/ar5iv/ar5iv.0.9.1.min.css"><link rel="stylesheet" href="/reader-native.css"><link rel="stylesheet" href="/figure-preview.css"></head><body><main class="ltx_page_main"><div class="ltx_page_content">${props.html}</div></main></body></html>`,[props.html]);
+  return <iframe ref={frame} className="native-reader" title="论文原文与双语阅读" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox" srcDoc={srcDoc} onLoad={()=>setLoaded(n=>n+1)}/>;
 });

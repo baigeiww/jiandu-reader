@@ -1,0 +1,45 @@
+name: Release Mac app
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json, .github/workflows/release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          architecture: arm64
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run desktop:release
+      - name: Publish DMG and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json","utf8")).version')
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version already exists."
+            exit 0
+          fi
+          gh release create "v$version" \
+            "output/releases/v$version/Jiandu-$version-macOS-arm64.dmg" \
+            "output/releases/v$version/SHA256SUMS.txt" \
+            --target "$GITHUB_SHA" \
+            --title "笺读 v$version · Mac 原生版" \
+            --notes-file "docs/releases/v$version.md" \
+            --latest

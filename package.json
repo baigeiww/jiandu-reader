@@ -1,6 +1,6 @@
 {
   "name": "arxiv-reader-demo",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,9 @@
     "desktop:build": "npm run build && native/build.zsh",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build && node server/build.mjs",
-    "test": "tsx --test src/core.test.ts src/translationTasks.test.ts src/readerDom.test.ts src/librarySummary.test.ts assistant-server.test.ts local-deepseek.test.ts server/app.test.ts"
+    "test:mac": "npm run build && node tests/mac/run.mjs",
+    "test": "tsx --test src/core.test.ts src/translationTasks.test.ts src/readerDom.test.ts src/librarySummary.test.ts assistant-server.test.ts local-deepseek.test.ts server/app.test.ts",
+    "desktop:release": "npm run build && native/release.zsh"
   },
   "dependencies": {
     "dompurify": "^3.2.0",

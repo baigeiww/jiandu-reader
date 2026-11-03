@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import {assistantResults,assistantSession} from './assistant.ts';
-import {saveAssistantTranslations} from './library.ts';
+import {saveAssistantTranslations,verifyLibraryImport} from './library.ts';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {JSDOM} from 'jsdom';
@@ -105,7 +105,7 @@ test('directory translations retain section identifiers and validate complete re
   assert.deepEqual(parseDirectoryResponse(JSON.stringify([{id:'paper',translation:'额外的上下文标题'},{id:'a2',translation:'Chisco'},{id:'s1',translation:'语义分解器'},{id:'a1',translation:'公开数据集'}]),items),{s1:'2.1 语义分解器',a1:'附录 A 公开数据集',a2:'A.1 Chisco'});
   assert.throws(()=>parseDirectoryResponse(JSON.stringify([{id:'s1',translation:'甲'},{id:'s1',translation:'乙'},{id:'a2',translation:'丙'}]),items),/条目/);
 });
-test('backup migration verifies saved profiles and translations, keeps destination data, and remaps conflicting IDs',async()=>{
+test('backup migration verifies saved profiles and translations, keeps destination data, and remaps conflicting IDs',async t=>{
   const win=new JSDOM('',{url:'http://127.0.0.1:5173'}).window;
   const previous=globalThis.DOMParser;globalThis.DOMParser=win.DOMParser;
   Object.assign(createDOMPurify,createDOMPurify(win));
@@ -118,12 +118,17 @@ test('backup migration verifies saved profiles and translations, keeps destinati
     const paper=parsePaper('<article class="ltx_document"><h1>Backup paper</h1><p class="ltx_p" id="backup-p">Original</p></article>',source);
     const result={html:'<p>已保存译文</p>',type:'api' as const};
     const headings={__paper_title__:{original:'Backup paper',translated:'备份论文'}};
-    const backup={format:'jiandu-backup',version:1,configuration:{version:1,activeId:'conflict',profiles:[incoming]},preferences:{'reader-last-source':source,'reader-sidebar-width':'512'},library:{groups:[{id:'group-conflict',name:'Source group'}],papers:[{source,paper,workId:'https://arxiv.org/html/2602.04299v1',groupId:'group-conflict',openedAt:1,results:{'backup-p':result},headings}],translations:[['backup-cache',result]]}};
-    const report=await importBackup(backup,win.localStorage);assert.equal(report.paragraphs,1);assert.equal(report.profiles,1);assert.equal(readSidebarWidth(win.localStorage),512);
+    const backup={format:'jiandu-backup',version:1,configuration:{version:1,activeId:'conflict',profiles:[incoming]},preferences:{'reader-last-source':source,'reader-sidebar-width':'512','reader-theme':'dark','reader-font-size':'19'},library:{groups:[{id:'group-conflict',name:'Source group'}],papers:[{source,paper,workId:'https://arxiv.org/html/2602.04299v1',groupId:'group-conflict',openedAt:1,results:{'backup-p':result},headings}],translations:[['backup-cache',result]]}};
+    const getAll=t.mock.method(IDBObjectStore.prototype,'getAll');
+    const report=await importBackup(backup,win.localStorage);
+    assert.deepEqual(getAll.mock.calls.map(call=>(call.this as IDBObjectStore).name),['groups']);
+    assert.equal(win.localStorage.getItem('reader-theme'),'dark');assert.equal(win.localStorage.getItem('reader-font-size'),'19');assert.equal(report.paragraphs,1);assert.equal(report.profiles,1);assert.equal(readSidebarWidth(win.localStorage),512);
     const config=readConfiguration(win.localStorage);assert.equal(config.profiles.length,2);assert.notEqual(config.activeId,'conflict');assert.equal(activeSettings(config).key,'fixture-source');
     const saved=await readPaper(source);assert.equal(saved?.workId,source);assert.deepEqual(saved?.headings,headings);assert.deepEqual(saved?.results['backup-p'],result);assert.notEqual(saved?.groupId,'group-conflict');assert.deepEqual(await readTranslation('backup-cache'),result);
     win.localStorage.setItem('translation:legacy-key',JSON.stringify(result));
     const exported=await exportBackup(win.localStorage);assert.ok(exported.library.translations.some(([key])=>key==='legacy-key'));assert.equal(exported.configuration.profiles.length,2);
+    assert.equal(exported.preferences['reader-theme'],'dark');assert.equal(exported.preferences['reader-font-size'],'19');
+    await assert.rejects(verifyLibraryImport({groups:[],papers:[],translations:[['backup-cache',{...result,html:'不同译文'}]]}));
     assert.throws(()=>validateBackup({format:'other'}),/有效/);
     assert.throws(()=>validateBackup({...backup,configuration:{version:1,activeId:'bad',profiles:[{}]}}),/API/);
   }finally{globalThis.DOMParser=previous;win.close();}
@@ -231,7 +236,11 @@ test('native paper keeps section nesting, original headings, authors, references
   const html=readFileSync(new URL('../public/paper.html',import.meta.url),'utf8');
   const window=new JSDOM('').window;
   const purifier=createDOMPurify(window as unknown as Parameters<typeof createDOMPurify>[0]);
-  const paper=parsePaper(html,'https://arxiv.org/html/2602.04299v1',new window.DOMParser(),value=>purifier.sanitize(value,PAPER_SANITIZE_OPTIONS));
+  let sanitizeCalls=0;
+  const paper=parsePaper(html,'https://arxiv.org/html/2602.04299v1',new window.DOMParser(),value=>{sanitizeCalls++;return purifier.sanitize(value,PAPER_SANITIZE_OPTIONS);});
+  assert.equal(sanitizeCalls,1);
+  assert.ok(paper.blocks.every(b=>b.html===undefined));
+  assert.ok(paper.blocks.filter(b=>b.kind!=='paragraph'&&b.kind!=='caption').every(b=>!b.input&&!Object.keys(b.tokens).length));
   const native=new JSDOM(paper.html).window.document;
   assert.ok(native.querySelector('article.ltx_document > .ltx_authors'));
   assert.ok(native.querySelector('section section'));
@@ -335,6 +344,23 @@ test('arXiv directory rows become a readable code block without changing filenam
   assert.ok(tree.textContent!.split('\n').length>30);
   assert.equal(clone.querySelector('math[alttext=".mat"]')?.textContent,'.mat');
   assert.equal(clone.querySelector('math[alttext=".csv"]')?.textContent,'.csv');
+});
+test('a verbatim listing preserves sibling image panels and captions when imported or reparsed',()=>{
+  const parser=new (new JSDOM('').window.DOMParser)();
+  const raw=`<article class="ltx_document"><figure id="group">
+    <figure id="panel"><img id="plot" src="plot.png"><figcaption id="subcaption">Panel A.</figcaption></figure>
+    <p id="listing"><span class="ltx_verbatim"><span class="ltx_p">data.csv</span></span></p>
+    <p><span class="ltx_verbatim"><span class="ltx_p">legend</span></span><img id="key" src="key.png"></p>
+    <figcaption id="caption">Figure 1.</figcaption>
+  </figure></article>`;
+  const parse=(html:string)=>parsePaper(html,'https://arxiv.org/html/9999.99999',parser,html=>html);
+  const paper=parse(raw);
+  for(const parsed of [paper,parse(paper.html)]){
+    const figure=parser.parseFromString(parsed.html,'text/html').getElementById('group')!;
+    assert.deepEqual([...figure.querySelectorAll('img')].map(image=>image.id),['plot','key']);
+    assert.equal(figure.querySelector('pre#listing')?.textContent,'data.csv');
+    assert.deepEqual(parsed.blocks.filter(block=>block.kind==='caption').map(block=>block.id),['subcaption','caption']);
+  }
 });
 test('Google adapter joins segments, handles official response and reports rejection',async()=>{
   const original=globalThis.fetch;

@@ -28,3 +28,39 @@ test('轻量服务支持静态资源、助手、本机配置与固定网关，�
     const response=await fetch(origin+'/local-anthropic/v1/messages',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Authorization:'Bearer test'},body:JSON.stringify({model:'model'})});assert.equal(response.status,200);assert.equal((await response.json()).content[0].text,'OK');
   }finally{await close(server);await close(gateway);await rm(directory,{recursive:true,force:true});}
 });
+
+test('正文请求按字节限长并能解码横跨分片的中文',async()=>{
+  const {Readable}=await import('node:stream');
+  const {readUtf8Body}=await import('./request-body');
+  const text='{"message":"公式与译文"}',payload=Buffer.from(text);
+  const split=()=>Readable.from([...payload].map(byte=>Buffer.from([byte]))) as import('node:http').IncomingMessage;
+  assert.equal(await readUtf8Body(split(),payload.length),text);
+  assert.equal(await readUtf8Body(split(),payload.length-1),undefined);
+});
+
+test('论文分块送达，下载中断时拒绝不完整的全文',async()=>{
+  const {spawn}=await import('node:child_process');
+  const {articleDownloads}=await import('../article-downloads');
+  const directory=await mkdtemp(join(tmpdir(),'jiandu-import-')),gate=join(directory,'download');
+  const plugin=articleDownloads(url=>spawn(process.execPath,['-e',`
+    const fs=require('node:fs');
+    process.stdout.write('<article>');
+    if(process.argv[2].endsWith('/broken'))setTimeout(()=>process.exit(1),100);
+    else {const poll=setInterval(()=>{
+      if(fs.existsSync(process.argv[1])){clearInterval(poll);process.stdout.end('全文</article>');}
+    },10);}
+  `,gate,url],{stdio:['ignore','pipe','ignore']}));
+  let server!:Server;
+  plugin.configurePreviewServer({middlewares:{use(fn:Parameters<typeof createServer>[1]){server=createServer(fn);}}});
+  const origin=await listen(server);
+  try{
+    const response=await fetch(origin+'/paper-nature/articles/success',{signal:AbortSignal.timeout(5000)});
+    const reader=response.body!.getReader();
+    assert.equal(Buffer.from((await reader.read()).value!).toString(),'<article>');
+    await writeFile(gate,'ok');
+    let tail='';
+    for(;;){const part=await reader.read();if(part.done)break;tail+=Buffer.from(part.value).toString();}
+    assert.equal(tail,'全文</article>');
+    await assert.rejects(fetch(origin+'/paper-nature/articles/broken').then(res=>res.text()));
+  }finally{await close(server);await rm(directory,{recursive:true,force:true});}
+});

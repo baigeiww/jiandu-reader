@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.baigeiww.jiandu-reader.webkit</string>
+<key>CFBundleIdentifier</key><string>com.baigeiww.jiandu-reader</string>
+<key>CFBundleIconFile</key><string>Reader.icns</string>
+<key>CFBundleDisplayName</key><string>笺读</string>
 <key>CFBundleName</key><string>笺读</string>
 <key>CFBundleExecutable</key><string>Reader</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>2</string>
-<key>CFBundleShortVersionString</key><string>0.2</string>
+<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>

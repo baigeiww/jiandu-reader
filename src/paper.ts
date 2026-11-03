@@ -3,7 +3,7 @@ import katex from 'katex';
 import {sourceKind} from './sources';
 import {SOURCE,normalizeArticle,prepareParagraph,readableText} from './core';
 
-export type Block = {id:string; html:string; text:string; level:number; kind:'heading'|'paragraph'|'caption'|'figure'|'table'|'other'; tokens:Record<string,string>; input:string};
+export type Block = {id:string; html?:string; text:string; level:number; kind:'heading'|'paragraph'|'caption'|'figure'|'table'|'other'; tokens:Record<string,string>; input:string};
 export function isTranslatable(block:{kind:string;input?:string}){return (block.kind==='paragraph'||block.kind==='caption')&&(block.input===undefined||!!block.input.trim());}
 export type TranslationScope='body'|'captions'|'all';
 export function untranslatedBlocks<T extends {id:string;kind:string}>(blocks:T[],results:Record<string,{html:string}>,scope:TranslationScope='all'){
@@ -74,25 +74,23 @@ export function parsePaper(html:string,source=SOURCE,parser:Pick<DOMParser,'pars
       if(kind) {
         const id = el.id || (kind==='paragraph'?`reader-p-${blocks.length}`:parent.id) || `block-${blocks.length}`;
         if((kind==='paragraph'||heading)&&!el.id)el.id=id;
-        const prepared=prepareParagraph(el);
-        const display=el.cloneNode(true) as Element;display.removeAttribute('id');
-        blocks.push({id,kind,html:sanitize(display.outerHTML),text:readableText(el),level:heading?Number(el.tagName.slice(1)):0,input:prepared.text,tokens:prepared.tokens});
+        const prepared=kind==='paragraph'?prepareParagraph(el):{text:'',tokens:{}};
+        blocks.push({id,kind,text:readableText(el),level:heading?Number(el.tagName.slice(1)):0,input:prepared.text,tokens:prepared.tokens});
       } else if(el.matches('.ltx_abstract')) {
-        blocks.push({id:'abstract',kind:'heading',html:'',text:'Abstract',level:2,input:'',tokens:{}}); walk(el);
+        blocks.push({id:'abstract',kind:'heading',text:'Abstract',level:2,input:'',tokens:{}}); walk(el);
       } else if(el.matches('.ltx_bibliography')) {
-        blocks.push({id:'references',kind:'heading',html:'',text:'References',level:2,input:'',tokens:{}});
-        const refs=el.cloneNode(true) as Element;refs.querySelector('h2')?.remove();
-        blocks.push({id:'reference-list',kind:'other',html:sanitize(refs.outerHTML),text:'',level:0,input:'',tokens:{}});
+        blocks.push({id:'references',kind:'heading',text:'References',level:2,input:'',tokens:{}});
+        blocks.push({id:'reference-list',kind:'other',text:'',level:0,input:'',tokens:{}});
       } else walk(el);
     }
   }
   walk(article);
   // Append caption entries after the original index so existing paragraph IDs and caches stay stable.
   [...article.querySelectorAll('figcaption,caption,.ltx_caption')].filter(el=>!el.parentElement?.closest('figcaption,caption,.ltx_caption')).forEach((el,index)=>{
-    if(!readableText(el))return;
+    const text=readableText(el);if(!text)return;
     const id=el.id||`reader-caption-${index}`;el.id=id;
-    const prepared=prepareParagraph(el),display=el.cloneNode(true) as Element;display.removeAttribute('id');
-    blocks.push({id,kind:'caption',html:sanitize(display.outerHTML),text:readableText(el),level:0,input:prepared.text,tokens:prepared.tokens});
+    const prepared=prepareParagraph(el);
+    blocks.push({id,kind:'caption',text,level:0,input:prepared.text,tokens:prepared.tokens});
   });
   return {html:sanitize(article.outerHTML),source,id:sourceKind(source)==='arxiv'?source.split('/html/')[1]:new URL(source).pathname.split('/').filter(Boolean).at(-1)!,doi:article.getAttribute('data-reader-doi')||undefined,journal:article.getAttribute('data-reader-journal')||undefined,blocks,title:article.querySelector('h1')?.textContent?.trim() || '',authors:[...article.querySelectorAll('.ltx_personname')].map(a=>a.textContent?.trim()).join(', ')};
 }

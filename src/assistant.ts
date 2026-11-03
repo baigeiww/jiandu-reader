@@ -1,5 +1,5 @@
 import {restoreTranslation,cacheKey} from './core';
-import {listLibrarySummaries,readPaper,saveAssistantTranslations,type PaperRecord,type Result} from './library';
+import {listLibrarySummaries,readPaper,saveMissingTranslations,type PaperRecord,type Result} from './library';
 import {untranslatedBlocks} from './paper';
 
 export type AssistantItem={id:string;input:string;translation:string};
@@ -49,8 +49,8 @@ export function startAssistantBridge(onSaved:(source:string,results:Record<strin
           }else{
             // Validate the entire batch before committing anything. Existing translations win.
             const validated=assistantResults(record,job.items,document);
-            const saved=await saveAssistantTranslations(record.source,validated);
-            if(saved.length){const latest=await readPaper(record.source);if(latest)onSaved(record.source,latest.results);}
+            const {saved,results}=await saveMissingTranslations(record.source,validated);
+            if(saved.length)onSaved(record.source,results);
             result={id:job.id,saved:saved.length,skipped:validated.length-saved.length};
           }
         }catch(error){result={id:job.id,error:error instanceof Error?error.message:'处理失败'};}

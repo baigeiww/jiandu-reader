@@ -1,3 +1,4 @@
+import {readUtf8Body} from './request-body';
 import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';
 import {createReadStream,realpathSync} from 'node:fs';
 import {stat,realpath} from 'node:fs/promises';
@@ -23,7 +24,7 @@ export function createReaderServer(directory:string,apiKey='',gateway='http://12
       if(url.pathname==='/__reader/health'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({runtime:'standalone',pid:process.pid}));return;}
       if(url.pathname.startsWith('/local-anthropic/')){
         if(req.headers.origin!==`http://${req.headers.host}`||req.method!=='POST'||!['/local-anthropic/v1/messages','/local-anthropic/messages'].includes(url.pathname)){res.writeHead(403);res.end();return;}
-        let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>2*1024*1024){res.writeHead(413);res.end();return;}}
+        const body=await readUtf8Body(req,2*1024*1024);if(body===undefined){res.writeHead(413);res.end();return;}
         const response=await fetch(gateway+url.pathname.replace('/local-anthropic',''),{method:'POST',headers:{'Content-Type':'application/json',Authorization:req.headers.authorization||'','anthropic-version':String(req.headers['anthropic-version']||'2023-06-01')},body,signal:AbortSignal.timeout(90000)});
         const content=await response.text();res.writeHead(response.status,{'Content-Type':'application/json','Cache-Control':'no-store',...(response.headers.has('Retry-After')?{'Retry-After':response.headers.get('Retry-After')!}:{})});res.end(content);return;
       }

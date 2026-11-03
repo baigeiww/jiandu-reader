@@ -2,7 +2,7 @@
 #import <WebKit/WebKit.h>
 
 static NSString *const origin = @"http://127.0.0.1:5173";
-@interface Reader : NSObject <NSApplicationDelegate,WKNavigationDelegate,WKUIDelegate,WKDownloadDelegate>
+@interface Reader : NSObject <NSApplicationDelegate,WKNavigationDelegate,WKUIDelegate,WKDownloadDelegate,NSToolbarDelegate,WKScriptMessageHandler>
 @property NSWindow *window;
 @property WKWebView *view;
 @property NSTask *service;
@@ -24,19 +24,97 @@ static NSString *const origin = @"http://127.0.0.1:5173";
     for (NSArray *entry in entries)
         [menu addItemWithTitle:entry[0] action:NSSelectorFromString(entry[1]) keyEquivalent:entry[2]];
 }
+- (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
+    return @[@"sidebar", NSToolbarFlexibleSpaceItemIdentifier, @"import", @"settings"];
+}
+- (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
+    return [self toolbarDefaultItemIdentifiers:toolbar];
+}
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)identifier willBeInsertedIntoToolbar:(BOOL)insert {
+    NSDictionary *commands = @{@"sidebar": @[@"侧栏", @"sidebar.left"], @"import": @[@"导入论文", @"plus"], @"settings": @[@"翻译设置", @"slider.horizontal.3"]};
+    NSArray *command = commands[identifier];
+    if (!command) return nil;
+    NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
+    item.label = command[0]; item.toolTip = command[0];
+    item.image = [NSImage imageWithSystemSymbolName:command[1] accessibilityDescription:command[0]];
+    item.target = self; item.action = @selector(performReaderCommand:);
+    return item;
+}
+- (void)performReaderCommand:(NSToolbarItem *)item {
+    if ([item.itemIdentifier isEqual:@"settings"]) [self openSettings:item];
+    if ([item.itemIdentifier isEqual:@"import"]) [self openImport:item];
+    if ([item.itemIdentifier isEqual:@"sidebar"]) [self toggleSidebar:item];
+}
+- (void)performReaderAction:(NSString *)script {
+    NSString *action = [NSString stringWithFormat:@"if (!document.querySelector('dialog[open]')) { %@ }", script];
+    [self.window makeFirstResponder:self.view];
+    [self.view evaluateJavaScript:action completionHandler:nil];
+}
+- (void)openSettings:(id)sender {
+    [self performReaderAction:@"document.querySelector('.settings-button')?.click()"];
+}
+- (void)toggleSidebar:(id)sender {
+    [self performReaderAction:@"document.getElementById('sidebar-toggle')?.click()"];
+}
+- (void)openImport:(id)sender {
+    [self performReaderAction:@"const input = document.getElementById('arxiv-input');"
+        "if (input) input.focus(); else document.querySelector('.open-import')?.click();"];
+}
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+    if (!message.frameInfo.mainFrame || ![message.frameInfo.securityOrigin.host isEqual:@"127.0.0.1"]) return;
+    self.window.appearance = [NSAppearance appearanceNamed:[message.body isEqual:@"dark"] ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+}
+// WebKit scopes its default store to the application identifier. Upgrade the
+// preview build before creating a WKWebView, so books and settings move together.
+- (BOOL)prepareReadingStore {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSURL *library = [files URLsForDirectory:NSLibraryDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL *webkit = [library URLByAppendingPathComponent:@"WebKit" isDirectory:YES];
+    NSString *previewID = @"com.baigeiww.jiandu-reader.webkit";
+    NSURL *source = [[webkit URLByAppendingPathComponent:previewID] URLByAppendingPathComponent:@"WebsiteData"];
+    NSURL *directory = [webkit URLByAppendingPathComponent:NSBundle.mainBundle.bundleIdentifier];
+    NSURL *dest = [directory URLByAppendingPathComponent:@"WebsiteData"];
+    if ([files fileExistsAtPath:dest.path] || ![files fileExistsAtPath:source.path]) return YES;
+    if ([NSRunningApplication runningApplicationsWithBundleIdentifier:previewID].count) {
+        [self fail:@"请先退出已打开的预览版笺读，然后重新打开新版以迁移阅读资料。"]; return NO;
+    }
+    NSError *error = nil;
+    NSURL *staging = [directory URLByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    if ([files createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error] &&
+        [files copyItemAtURL:source toURL:staging error:&error] &&
+        [files moveItemAtURL:staging toURL:dest error:&error]) return YES;
+    [files removeItemAtURL:staging error:nil];
+    [self fail:[@"迁移阅读资料失败，旧资料已保留。 " stringByAppendingString:error.localizedDescription]];
+    return NO;
+}
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     NSApp.mainMenu = [NSMenu new];
-    [self menu:@"笺读" entries:@[@[@"隐藏笺读",@"hide:",@"h"],@[@"退出笺读",@"terminate:",@"q"]]];
+    [self menu:@"笺读" entries:@[@[@"翻译设置…",@"openSettings:",@","],@[@"隐藏笺读",@"hide:",@"h"],@[@"退出笺读",@"terminate:",@"q"]]];
+    [self menu:@"文件" entries:@[@[@"导入论文…",@"openImport:",@"o"]]];
     [self menu:@"编辑" entries:@[@[@"撤销",@"undo:",@"z"],@[@"重做",@"redo:",@"Z"],@[@"剪切",@"cut:",@"x"],@[@"复制",@"copy:",@"c"],@[@"粘贴",@"paste:",@"v"],@[@"全选",@"selectAll:",@"a"]]];
     [self menu:@"显示" entries:@[@[@"刷新",@"refresh:",@"r"],@[@"放大",@"larger:",@"="],@[@"缩小",@"smaller:",@"-"],@[@"实际大小",@"actual:",@"0"],@[@"全屏",@"toggleFullScreen:",@""]]];
+    NSMenu *viewMenu = [NSApp.mainMenu itemWithTitle:@"显示"].submenu;
+    NSMenuItem *sidebarItem = [viewMenu insertItemWithTitle:@"切换侧栏" action:@selector(toggleSidebar:) keyEquivalent:@"s" atIndex:0];
+    sidebarItem.target = self;
+    sidebarItem.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
     [self menu:@"窗口" entries:@[@[@"最小化",@"performMiniaturize:",@"m"],@[@"关闭",@"performClose:",@"w"]]];
     self.root = NSBundle.mainBundle.bundlePath.stringByDeletingLastPathComponent;
-    self.view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:[WKWebViewConfiguration new]];
+    if (![self prepareReadingStore]) return;
+    WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+    [config.userContentController addScriptMessageHandler:self name:@"readerAppearance"];
+    WKUserScript *shell = [[WKUserScript alloc] initWithSource:@"document.documentElement.dataset.nativeShell='true'" injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+    [config.userContentController addUserScript:shell];
+    self.view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:config];
     self.view.navigationDelegate = self; self.view.UIDelegate = self;
     self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1320,840)
         styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.title = @"笺读"; self.window.minSize = NSMakeSize(780,600);
+    NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"ReaderToolbar"];
+    toolbar.delegate = self;
+    toolbar.displayMode = NSToolbarDisplayModeIconOnly;
+    self.window.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
+    self.window.toolbar = toolbar;
     self.window.contentView = self.view; self.window.releasedWhenClosed = NO;
     [self.window center]; [self.window setFrameAutosaveName:@"ReaderWindow"];
     [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];

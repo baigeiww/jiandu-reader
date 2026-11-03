@@ -1,3 +1,4 @@
+import {readUtf8Body} from './server/request-body';
 import {randomUUID} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
@@ -25,7 +26,7 @@ export function assistantMiddleware(token:string){
       let body:any;
       if(req.method==='POST'){
         if(!req.headers['content-type']?.startsWith('application/json'))return reply(415,{error:'需要 JSON'});
-        let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>2*1024*1024)return reply(413,{error:'批次过大'});}
+        const raw=await readUtf8Body(req,2*1024*1024);if(raw===undefined)return reply(413,{error:'批次过大'});
         body=JSON.parse(raw);
       }
       if(sync&&req.method==='POST'){
