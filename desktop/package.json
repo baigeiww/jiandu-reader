@@ -1,0 +1,9 @@
+{
+  "name": "jiandu-desktop",
+  "productName": "笺读",
+  "version": "0.1.0",
+  "description": "论文双语阅读与公式解析",
+  "main": "main.cjs",
+  "author": "baigeiww",
+  "license": "UNLICENSED"
+}

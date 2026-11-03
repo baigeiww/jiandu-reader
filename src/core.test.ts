@@ -84,10 +84,10 @@ test('full translation resumes at the first missing item, skips completed gaps a
   assert.deepEqual(untranslatedBlocks(blocks,finished),[]);
 });
 test('sidebar restores saved width, rejects invalid storage and constrains narrow screens without replacing the preference',()=>{
-  assert.equal(readSidebarWidth({getItem:()=>null}),440);
+  assert.equal(readSidebarWidth({getItem:()=>null}),312);
   assert.equal(readSidebarWidth({getItem:()=> '512'}),512);
-  for(const value of ['bad','Infinity','0','200','800'])assert.equal(readSidebarWidth({getItem:()=>value}),440);
-  assert.equal(readSidebarWidth({getItem:()=>{throw Error('denied');}}),440);
+  for(const value of ['bad','Infinity','0','200','800'])assert.equal(readSidebarWidth({getItem:()=>value}),312);
+  assert.equal(readSidebarWidth({getItem:()=>{throw Error('denied');}}),312);
   const storage={getItem:(key:string)=>key===SIDEBAR_WIDTH_KEY?'600':null};
   assert.equal(fitSidebarWidth(readSidebarWidth(storage),2000),600);
   assert.equal(fitSidebarWidth(readSidebarWidth(storage),1100),540);

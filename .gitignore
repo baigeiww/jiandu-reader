@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-server/
 output/
 .env
 .env.*
@@ -11,3 +12,8 @@ jiandu-migration*.json
 .codex/
 .agents/
 .aws/
+.runtime/
+.DS_Store
+sk-*/
+*.app/
+

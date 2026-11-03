@@ -1,12 +1,13 @@
-import type {parsePaper} from './paper';
+import {untranslatedBlocks,type parsePaper} from './paper';
 
 export type Paper=ReturnType<typeof parsePaper>;
 export type Result={html:string;type:'sample'|'api'|'google'|'assistant'};
 export type DirectoryLabels=Record<string,{original:string;translated:string}>;
 export type PaperRecord={source:string;paper:Paper;groupId:string;workId?:string;openedAt:number;results:Record<string,Result>;headings?:DirectoryLabels};
-export function workKey(record:PaperRecord){return record.workId||record.source;}
-export function paperWorks(papers:PaperRecord[]){
-  const works=new Map<string,PaperRecord[]>();
+export type PaperSummary=Pick<PaperRecord,'source'|'groupId'|'workId'|'openedAt'> & {paper:Pick<Paper,'title'|'id'|'journal'>;translated:number;remaining:number};
+export function workKey(record:Pick<PaperRecord,'source'|'workId'>){return record.workId||record.source;}
+export function paperWorks<T extends Pick<PaperRecord,'source'|'workId'|'groupId'> & {paper:{title:string}}>(papers:T[]){
+  const works=new Map<string,T[]>();
   for(const record of papers){const key=workKey(record);works.set(key,[...(works.get(key)||[]),record]);}
   return [...works.entries()].map(([id,versions])=>({id,versions,groupId:versions[0].groupId,title:versions[0].paper.title}));
 }
@@ -39,6 +40,21 @@ export function listLibrary(){return transaction<{papers:PaperRecord[];groups:Pa
   const papers=tx.objectStore('papers').getAll(),groups=tx.objectStore('groups').getAll();
   const finish=()=>{if(papers.readyState==='done'&&groups.readyState==='done')done({papers:papers.result.sort((a,b)=>b.openedAt-a.openedAt),groups:groups.result});};
   papers.onsuccess=finish;groups.onsuccess=finish;
+});}
+// Only one snapshot is materialized at a time; callers retain no full paper HTML.
+export function listLibrarySummaries(){return transaction<{papers:PaperSummary[];groups:PaperGroup[]}>(['papers','groups'],'readonly',(tx,done)=>{
+  const summaries:PaperSummary[]=[],groups=tx.objectStore('groups').getAll();let finished=false;
+  const finish=()=>{if(finished&&groups.readyState==='done')done({papers:summaries.sort((a,b)=>b.openedAt-a.openedAt),groups:groups.result});};
+  const request=tx.objectStore('papers').openCursor();
+  request.onsuccess=()=>{
+    const cursor=request.result;if(!cursor){finished=true;finish();return;}
+    const record=cursor.value as PaperRecord;
+    summaries.push({source:record.source,groupId:record.groupId,workId:record.workId,openedAt:record.openedAt,
+      paper:{title:record.paper.title,id:record.paper.id,journal:record.paper.journal},
+      translated:Object.keys(record.results).length,remaining:untranslatedBlocks(record.paper.blocks,record.results).length});
+    cursor.continue();
+  };
+  groups.onsuccess=finish;
 });}
 export function savePaper(paper:Paper){return transaction<void>(['papers'],'readwrite',tx=>{
   const store=tx.objectStore('papers'),r=store.getAll();

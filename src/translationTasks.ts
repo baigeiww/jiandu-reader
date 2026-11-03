@@ -26,7 +26,7 @@ export class TranslationTasks {
     if(this.active(paper.source))return false;
     const targets=untranslatedBlocks(paper.blocks,{},scope);
     const view:TranslationTask={source:paper.source,title:paper.title,scope,status:'queued',total:targets.length,done:targets.length-untranslatedBlocks(targets,results).length,saved:0,failures:0,model:settings.provider.startsWith('google')?'Google':settings.model};
-    this.works.set(paper.source,{view,paper,settings:{...settings},results:{...results},controller:new AbortController(),failed:new Set(),created:Date.now()});
+    this.works.set(paper.source,{view,paper:{...paper,html:''},settings:{...settings},results:{...results},controller:new AbortController(),failed:new Set(),created:Date.now()});
     this.emit();void this.pump();return true;
   }
   pause(source:string){
@@ -40,8 +40,9 @@ export class TranslationTasks {
   }
   cancel(source:string){
     const work=this.works.get(source);if(!work||['completed','cancelled'].includes(work.view.status))return;
-    work.view.status='cancelled';work.controller.abort();this.emit();
+    work.view.status='cancelled';work.controller.abort();this.release(work);this.emit();
   }
+  private release(work:Work){work.paper={...work.paper,html:'',blocks:[]};work.results={};work.settings={...work.settings,key:''};}
   dismiss(source:string){const work=this.works.get(source);if(work&&['completed','cancelled'].includes(work.view.status)){this.works.delete(source);this.emit();}}
   stop(){for(const source of this.works.keys())this.cancel(source);}
   private async pump(){
@@ -92,6 +93,6 @@ export class TranslationTasks {
       }
     }catch(error){
       if(!['paused','cancelled','queued'].includes(view.status)){view.status='failed';view.error=(view.activeId?view.activeId+'：':'')+(error instanceof Error?error.message:String(error));}
-    }finally{if(['pausing'].includes(view.status))view.status='paused';if(view.status!=='failed')view.activeId=undefined;this.emit();}
+    }finally{if(['pausing'].includes(view.status))view.status='paused';if(view.status!=='failed')view.activeId=undefined;if(['cancelled'].includes(view.status)||(view.status==='completed'&&!view.failures))this.release(work);this.emit();}
   }
 }

@@ -1,5 +1,5 @@
 export const SIDEBAR_WIDTH_KEY='reader-sidebar-width';
-export const DEFAULT_SIDEBAR_WIDTH=440;
+export const DEFAULT_SIDEBAR_WIDTH=312;
 export const MIN_SIDEBAR_WIDTH=280;
 export const MAX_SIDEBAR_WIDTH=720;
 export function readSidebarWidth(storage:Pick<Storage,'getItem'>){

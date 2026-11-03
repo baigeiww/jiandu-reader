@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 
 // Local conversation bridge. Paper data stays in memory; credentials never enter it.
@@ -70,15 +71,15 @@ export function assistantMiddleware(token:string){
   return middleware;
 }
 
-export function assistantBridge(){
+export function assistantBridge(outputDirectory='output'){
   const token=randomUUID(),middleware=assistantMiddleware(token);
   const install=(server:any)=>{
     server.middlewares.use(middleware);
     server.httpServer?.once('listening',()=>{
       const address=server.httpServer.address();
       if(address&&typeof address==='object'){
-        mkdirSync('output',{recursive:true});
-        writeFileSync('output/assistant-bridge.json',JSON.stringify({url:`http://127.0.0.1:${address.port}/__assistant`,token},null,2));
+        mkdirSync(outputDirectory,{recursive:true});
+        writeFileSync(join(outputDirectory,'assistant-bridge.json'),JSON.stringify({url:`http://127.0.0.1:${address.port}/__assistant`,token},null,2));
       }
     });
   };

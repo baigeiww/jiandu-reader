@@ -11,7 +11,8 @@ async function main(){
     if(!fs.existsSync(path.join(__dirname,'dist/index.html')))throw Error('未找到应用文件，请先运行 npm run build。');
     fs.mkdirSync(path.join(__dirname,'output'),{recursive:true});
     const log=fs.openSync(path.join(__dirname,'output/server.log'),'a');
-    const server=spawn(process.execPath,[path.join(__dirname,'node_modules/vite/bin/vite.js'),'preview','--host','127.0.0.1','--port','5173','--strictPort'],{cwd:__dirname,windowsHide:true,detached:true,stdio:['ignore',log,log]});
+    if(!fs.existsSync(path.join(__dirname,'dist-server/reader.cjs')))throw Error('未找到本机服务，请先运行 npm run build。');
+    const server=spawn(process.execPath,[path.join(__dirname,'dist-server/reader.cjs')],{cwd:__dirname,windowsHide:true,detached:true,stdio:['ignore',log,log]});
     let startupError;server.on('error',error=>{startupError=error;});
     server.unref();fs.closeSync(log);
     let ready=false;
@@ -19,9 +20,12 @@ async function main(){
     if(!ready)throw Error('阅读器启动失败，请查看 output/server.log。');
   }
   if(!process.argv.includes('--check')){
-    // Let Windows open the user's normal browser, retaining its own site storage.
-    const browser=spawn('rundll32.exe',['url.dll,FileProtocolHandler',url],{windowsHide:true,detached:true,stdio:'ignore'});browser.on('error',error=>{fs.writeFileSync(path.join(__dirname,'output/launch-error.txt'),error.message);});browser.unref();
+    fs.mkdirSync(path.join(__dirname,'output'),{recursive:true});
+    const command=process.platform==='darwin'?'/usr/bin/open':process.platform==='win32'?'rundll32.exe':'xdg-open';
+    const args=process.platform==='win32'?['url.dll,FileProtocolHandler',url]:[url];
+    const browser=spawn(command,args,{windowsHide:true,detached:true,stdio:'ignore'});browser.on('error',error=>{fs.writeFileSync(path.join(__dirname,'output/launch-error.txt'),error.message);});browser.unref();
   }
   console.log('Reader ready: '+url);
 }
 main().catch(error=>{fs.mkdirSync(path.join(__dirname,'output'),{recursive:true});fs.writeFileSync(path.join(__dirname,'output/launch-error.txt'),error.message);console.error(error.message);process.exitCode=1;});
+

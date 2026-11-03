@@ -19,6 +19,7 @@ import {TranslationTasks,type TranslationTask} from './translationTasks';
 import {TranslationTaskBar} from './TranslationTaskBar';
 import {readPaper,savePaper,readTranslation,saveTranslation,saveAssistantTranslations,type Result,type Paper} from './library';
 import './style.css';
+import './refined.css';
 const MathExplanation=lazy(()=>import('./MathExplanation').then(module=>({default:module.MathExplanation})));
 
 type FormulaState={target:FormulaTarget;loading:boolean;result?:string;error?:string;model:string;cached?:boolean};
@@ -150,7 +151,7 @@ function App() {
     try{
       const result=await modelRequest(config,FORMULA_PROMPT,message,2048,controller.signal);
       if(controller!==formulaController.current||generation!==paperGeneration.current||config!==currentSettings.current)return;
-      formulaCache.current.set(key,result);setFormula({...state,result});
+      formulaCache.current.set(key,result);if(formulaCache.current.size>32)formulaCache.current.delete(formulaCache.current.keys().next().value!);setFormula({...state,result});
     }catch(error){
       if(controller.signal.aborted||controller!==formulaController.current||generation!==paperGeneration.current||config!==currentSettings.current)return;
       setFormula({...state,error:error instanceof Error?error.message:String(error)});
@@ -209,7 +210,7 @@ function App() {
   const taskBusy=!!paperTask&&['queued','running','pausing'].includes(paperTask.status);
   const displayBusy={...busy,...(paperTask?.activeId&&taskBusy?{[paperTask.activeId]:true}:{})};
   const displayErrors={...errors,...(paperTask?.error&&paperTask.status==='failed'&&paperTask.activeId?{[paperTask.activeId]:paperTask.error}:{})};
-  return <div className="app">
+  return <div className={'app'+(side?' sidebar-visible':'')}>
     <header className="topbar"><button className="mobile-menu icon-button" aria-label="打开目录" onClick={()=>setSide(!side)}>☰</button><a className="brand" href="#"><span className="brand-mark">{icons.book}</span><strong>笺读</strong><span className="brand-divider"/><span className="brand-sub">论文双语阅读</span></a><div className="header-actions"><span className="local-status">{configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span><button className="settings-button" onClick={()=>setDialog(true)}>{icons.settings} <span>翻译设置</span></button></div></header>
     <aside className={'sidebar '+(side?'open':'')}><PaperLibrary revision={libraryRevision} current={paper?.source} disabled={importing} onOpen={source=>void importPaper(source)} onError={toast}/><Directory paper={paper} settings={settings} active={active} importing={importing} onJump={jump}/><div className="sidebar-bottom"><div className="protected-icon">⌁</div><div><strong>保留每一个细节</strong><p>公式、引用与文件名原样保护</p></div><span className="green-dot"/></div></aside>
     <SidebarResize open={side} onError={()=>toast('侧栏宽度已调整，但保存失败，请检查浏览器本地存储权限。')}/>
@@ -246,6 +247,22 @@ function App() {
   </div>;
 }
 
-createRoot(document.getElementById('root')!).render(<App/>);
+async function start(){
+  if(navigator.userAgent.includes('Electron/'))document.documentElement.dataset.desktop='true';
+  try{
+    const config=readConfiguration(localStorage);
+    if(!config.profiles.length){
+      const response=await fetch('/local-reader-config',{signal:AbortSignal.timeout(3000)});
+      const local=response.ok?await response.json():undefined;
+      if(local?.enabled)writeConfiguration(localStorage,{version:1,activeId:'mac-deepseek',profiles:[{
+        id:'mac-deepseek',name:'DeepSeek · 本机',provider:'llm',endpoint:location.origin+'/local-deepseek/v1',
+        model:local.model,key:'local-managed',glossary:activeSettings(config).glossary
+      }]});
+    }
+  }catch{/* Optional local configuration must not block reading. */}
+  createRoot(document.getElementById('root')!).render(<App/>);
+}
+void start();
+
 
 

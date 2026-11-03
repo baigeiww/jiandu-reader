@@ -1,5 +1,5 @@
 import {restoreTranslation,cacheKey} from './core';
-import {listLibrary,readPaper,saveAssistantTranslations,type PaperRecord,type Result} from './library';
+import {listLibrarySummaries,readPaper,saveAssistantTranslations,type PaperRecord,type Result} from './library';
 import {untranslatedBlocks} from './paper';
 
 export type AssistantItem={id:string;input:string;translation:string};
@@ -31,8 +31,8 @@ export function startAssistantBridge(onSaved:(source:string,results:Record<strin
   const handled=new Map<string,unknown>();
   const tick=async()=>{
     try{
-      const library=await listLibrary();
-      const papers=library.papers.map(p=>({source:p.source,title:p.paper.title,group:library.groups.find(g=>g.id===p.groupId)?.name||'未分组',remaining:untranslatedBlocks(p.paper.blocks,p.results).length}));
+      const library=await listLibrarySummaries();
+      const papers=library.papers.map(p=>({source:p.source,title:p.paper.title,group:library.groups.find(g=>g.id===p.groupId)?.name||'未分组',remaining:p.remaining}));
       controller=new AbortController();
       const response=await fetch('/__assistant/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:2,visible:document.visibilityState==='visible',session,papers,completed}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(35000)])});
       if(!response.ok)throw Error('本地通道暂不可用');
