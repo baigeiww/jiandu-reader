@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "desktop": "open ./笺读.app",
-    "desktop:build": "npm run build && node desktop/build.cjs",
+    "desktop:build": "npm run build && native/build.zsh",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build && node server/build.mjs",
     "test": "tsx --test src/core.test.ts src/translationTasks.test.ts src/readerDom.test.ts src/librarySummary.test.ts assistant-server.test.ts local-deepseek.test.ts server/app.test.ts"
