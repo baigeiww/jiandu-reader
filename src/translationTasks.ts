@@ -40,7 +40,7 @@ export class TranslationTasks {
   }
   cancel(source:string){
     const work=this.works.get(source);if(!work||['completed','cancelled'].includes(work.view.status))return;
-    work.view.status='cancelled';work.controller.abort();this.release(work);this.emit();
+    work.view.status='cancelled';work.view.activeId=undefined;work.controller.abort();this.release(work);this.emit();
   }
   private release(work:Work){work.paper={...work.paper,html:'',blocks:[]};work.results={};work.settings={...work.settings,key:''};}
   dismiss(source:string){const work=this.works.get(source);if(work&&['completed','cancelled'].includes(work.view.status)){this.works.delete(source);this.emit();}}
@@ -87,6 +87,9 @@ export class TranslationTasks {
         const stored=await this.deps.save(paper.source,block.id,key,result);
         work.results[block.id]=stored.result;view.saved+=Number(stored.saved);view.done++;
         this.deps.result(paper.source,block.id,stored.result);
+        // A save already in progress may finish after cancellation. Keep that
+        // result, but never turn a cancelled task back into a completed one.
+        if(['cancelled'].includes(view.status))break;
         if(view.done>=view.total){view.status='completed';return;}
         if(['pausing'].includes(view.status)){view.status='paused';break;}
         this.emit();

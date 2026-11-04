@@ -223,5 +223,71 @@ try {
     directoryTab.click();
     await until('manual directory switch failed',()=>directoryTab.getAttribute('aria-pressed')==='true'&&!document.querySelector('.paper-library'));
   }finally{window.fetch=originalFetch;}
+  // Exercise the real task queue and footer restore control with a gated,
+  // entirely local model stub. This never reads a key or sends an API request.
+  shelfTab.click();
+  await until('library not ready for task test',()=>document.querySelector('.paper-library'));
+  document.querySelector('.settings-button').click();
+  const taskSettings=await until('task settings missing',()=>document.querySelector('.settings-dialog:modal'));
+  const setInput=async(name,value)=>{
+    const field=await until(name+' input missing',()=>taskSettings.querySelector('[name="'+name+'"]'));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,value);
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+    await new Promise(resolve=>setTimeout(resolve,0));
+  };
+  await setInput('profileName','Offline task fixture');
+  const provider=taskSettings.querySelector('[name="provider"]');
+  provider.value='llm';provider.dispatchEvent(new Event('change',{bubbles:true}));
+  await setInput('endpoint','https://fixture.invalid/v1');
+  await setInput('model','fixture-model');await setInput('key','fixture-only');
+  let autoReply=false;
+  const requests=[];
+  const taskFetch=window.fetch;
+  window.fetch=(input,options)=>{
+    if(String(input)!=='https://fixture.invalid/v1/chat/completions')return taskFetch(input,options);
+    const payload=JSON.parse(options.body);
+    if(payload.messages[0].content.startsWith('只将 items 数组')){
+      const items=JSON.parse(payload.messages.at(-1).content).items;
+      return Promise.resolve(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(items.map(item=>({id:item.id,translation:'本地目录 '+item.text})))}}]}),{headers:{'Content-Type':'application/json'}}));
+    }
+    const reply=()=>new Response(JSON.stringify({choices:[{message:{content:'本地译文 '+payload.messages.at(-1).content}}]}),{headers:{'Content-Type':'application/json'}});
+    return new Promise((resolve,reject)=>{
+      const request={signal:options.signal,finish:()=>resolve(reply())};requests.push(request);
+      options.signal?.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});
+      if(autoReply)request.finish();
+    });
+  };
+  function taskButton(label){return [...document.querySelectorAll('.translation-taskbar button')].find(button=>button.getAttribute('aria-label')===label||button.textContent===label);}
+  function beginCaptions(){const menu=document.querySelector('.translate-menu');menu.value='captions';menu.dispatchEvent(new Event('change',{bubbles:true}));}
+  try{
+    taskSettings.querySelector('form').requestSubmit();
+    await until('fixture profile not saved',()=>!document.querySelector('.settings-dialog'));
+    beginCaptions();await until('task did not start',()=>requests.length===1&&taskButton('最小化翻译任务面板'));
+    taskButton('最小化翻译任务面板').click();
+    await until('task did not minimize',()=>document.querySelector('.taskbar-minimized')&&!document.querySelector('.taskbar-list'));
+    assert(!requests[0].signal.aborted,'minimizing aborted the request');
+    document.querySelector('.task-status-trigger').click();await until('footer did not restore task',()=>document.querySelector('.taskbar-list'));
+    taskButton('关闭翻译任务面板').click();await until('close choices missing',()=>taskButton('隐藏面板，保持后台翻译'));
+    taskButton('隐藏面板，保持后台翻译').click();await until('task did not hide',()=>!document.querySelector('.translation-taskbar'));
+    assert(!requests[0].signal.aborted,'hiding aborted background translation');
+    requests[0].finish();await until('hidden task stopped making progress',()=>requests.length===2);
+    document.querySelector('.task-status-trigger').click();await until('hidden task not restored',()=>taskButton('关闭翻译任务面板'));
+    taskButton('关闭翻译任务面板').click();await until('pause-and-close missing',()=>taskButton('暂停任务并关闭面板'));
+    taskButton('暂停任务并关闭面板').click();await until('pausing task panel not hidden',()=>!document.querySelector('.translation-taskbar'));
+    requests[1].finish();await until('task did not pause after saving current item',()=>document.querySelector('.task-status-trigger')?.textContent.includes('已暂停'));
+    assert(requests.length===2,'paused task sent another request');
+    document.querySelector('.task-status-trigger').click();await until('paused task cannot resume',()=>taskButton('继续'));
+    taskButton('继续').click();await until('task did not resume',()=>requests.length===3);
+    taskButton('关闭翻译任务面板').click();await until('cancel-and-close missing',()=>taskButton('取消任务并关闭面板'));
+    taskButton('取消任务并关闭面板').click();await until('cancellation did not abort in-flight request',()=>requests[2].signal.aborted&&!document.querySelector('.translation-taskbar'));
+    document.querySelector('.task-status-trigger').click();await until('cancelled task not shown',()=>document.querySelector('.task-progress')?.textContent.includes('已取消'));
+    const translatedCaptions=()=>document.querySelector('.native-reader').contentDocument.querySelectorAll('.reader-caption-addon .reader-translation').length;
+    await until('cancelling lost saved caption translations',()=>translatedCaptions()===2);
+    taskButton('关闭翻译任务面板').click();await until('cancelled record not dismissed',()=>!document.querySelector('.translation-taskbar')&&!document.querySelector('.task-status-trigger'));
+    autoReply=true;beginCaptions();await until('new task did not reopen or finish',()=>document.querySelector('.task-progress')?.textContent.includes('已完成'));
+    assert(translatedCaptions()>2,'restarted task did not fill missing captions');
+    taskButton('关闭翻译任务面板').click();await until('finished task did not close',()=>!document.querySelector('.translation-taskbar')&&!document.querySelector('.task-status-trigger'));
+    assert(translatedCaptions()>2,'closing completed task removed translations');
+  }finally{window.fetch=taskFetch;}
   return 'PASS';
 } catch (error) { return String(error); }

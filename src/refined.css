@@ -163,3 +163,19 @@ html[data-theme=dark] .delete-profile { color: #e8aba3; }
 @media(max-width:650px) {
   .settings-dialog .dialog-header,.settings-fields,.settings-dialog .profile-actions { padding-inline: 16px; }
 }
+
+.taskbar-header{display:flex;align-items:center;gap:4px;padding-right:8px}
+.taskbar-header .taskbar-toggle{flex:1;min-width:0;gap:8px;padding-right:4px;flex-wrap:wrap}
+.taskbar-header .taskbar-toggle span{margin-left:0;font-size:11px}
+.taskbar-window-controls{display:flex;flex:none;gap:2px}
+.taskbar-window-controls button{display:grid;place-items:center;width:28px;height:28px;border-radius:6px;color:var(--muted);font-size:20px;line-height:1}
+.taskbar-window-controls button:hover{background:var(--soft);color:var(--text)}
+.taskbar-minimized{width:260px}
+.taskbar-close-options{padding:4px 14px 14px;font-size:12px;line-height:1.65}
+.taskbar-close-options p{color:var(--muted);margin:6px 0 12px}
+.taskbar-close-actions{display:grid;gap:7px}
+.taskbar-close-actions button{padding:8px 10px;text-align:left;border:1px solid var(--line);border-radius:7px;background:var(--soft);color:var(--text);font-size:12px}
+.taskbar-close-actions button:hover{border-color:var(--accent)}
+.taskbar-close-actions .taskbar-cancel-all{color:var(--accent)}
+.task-status-trigger{color:var(--accent);font-size:inherit;text-decoration:underline;text-underline-offset:3px}
+.task-status-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

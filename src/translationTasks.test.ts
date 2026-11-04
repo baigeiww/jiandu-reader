@@ -89,3 +89,18 @@ test('manual Pause remains available even if the current API request fails',asyn
   f.setHandler();f.queue.resume('P');await until(()=>f.queue.snapshot()[0].status==='completed');
   assert.equal(f.queue.snapshot()[0].done,2);
 });
+
+test('cancel during an in-progress save preserves its result and keeps the cancelled status',async()=>{
+  let finishSave!:(value:{result:Result;saved:boolean})=>void;
+  let saved=false;
+  const queue=new TranslationTasks({read:async()=>({}),cached:async()=>undefined,
+    translate:async()=>({html:'已完成的译文',type:'api'}),
+    save:()=>new Promise(resolve=>{finishSave=value=>{saved=true;resolve(value);};}),result:()=>{}});
+  queue.start(paper('P'),settings,'body',{});
+  await until(()=>!!finishSave);
+  queue.cancel('P');assert.equal(queue.snapshot()[0].status,'cancelled');
+  finishSave({result:{html:'已完成的译文',type:'api'},saved:true});await setImmediate();
+  assert.equal(saved,true);assert.equal(queue.snapshot()[0].status,'cancelled');
+  assert.equal(queue.snapshot()[0].saved,1);assert.equal(queue.snapshot()[0].activeId,undefined);
+  queue.dismiss('P');assert.equal(queue.snapshot().length,0);
+});

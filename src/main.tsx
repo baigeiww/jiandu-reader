@@ -16,7 +16,7 @@ import {FloatingPanel} from './FloatingPanel';
 import {SidebarResize} from './SidebarResize';
 import {startAssistantBridge} from './assistant';
 import {TranslationTasks,type TranslationTask} from './translationTasks';
-import {TranslationTaskBar} from './TranslationTaskBar';
+import {TranslationTaskBar,taskSummary,type TaskPanelMode} from './TranslationTaskBar';
 import {openSavedPaper,touchPaper,readNotes,savePaper,readTranslation,readCachedTranslations,saveTranslation,saveMissingTranslations,type Result,type Paper} from './library';
 import './style.css';
 import './refined.css';
@@ -132,6 +132,8 @@ function App() {
   const currentPaper=useRef(paper);currentPaper.current=paper;
   const taskQueue=useRef<TranslationTasks|undefined>(undefined);
   const [tasks,setTasks]=useState<TranslationTask[]>([]);
+  const [taskPanelMode,setTaskPanelMode]=useState<TaskPanelMode>('expanded');
+  useEffect(()=>{if(taskPanelMode==='hidden')(document.querySelector<HTMLButtonElement>('.task-status-trigger')||document.querySelector<HTMLButtonElement>('.mode-switch button'))?.focus({preventScroll:true});},[taskPanelMode]);
   if(!taskQueue.current)taskQueue.current=new TranslationTasks({
     read:async source=>(await readNotes(source))?.results||{},cached:loadCached,
     translate:async(block,config,signal)=>({html:await requestUsing(config,block.input,block.tokens,signal),type:config.provider.startsWith('google')?'google':'api'}),
@@ -266,7 +268,7 @@ function App() {
       for(const block of blocks.filter(b=>sampleFor(b.id)))await translate(block);
       toast('已载入可用的示例译文；其他内容需配置翻译服务。');return;
     }
-    if(taskQueue.current!.start(paper,settings,scope,results))toast('翻译任务已加入队列，切换论文后仍会继续。');
+    if(taskQueue.current!.start(paper,settings,scope,results)){setTaskPanelMode('expanded');toast('翻译任务已加入队列，切换论文后仍会继续。');}
     else toast('这篇论文已有任务，可在右下角暂停、继续或取消后重新创建。');
   }
   async function translateSelection() {
@@ -312,8 +314,8 @@ function App() {
       </div>
       </>}
     </main>
-    <div className="bottom-status"><span><i/> {paper?`${paper.blocks.filter(b=>b.kind==='paragraph').length} 个正文段落`:'加载中'} <b>·</b> 已显示 {count} 项译文</span><span>{tasks.some(t=>['running','queued','pausing'].includes(t.status))?'后台翻译任务运行中' :configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span></div>
-    <TranslationTaskBar tasks={tasks} onPause={source=>taskQueue.current!.pause(source)} onResume={source=>taskQueue.current!.resume(source)} onCancel={source=>taskQueue.current!.cancel(source)} onDismiss={source=>taskQueue.current!.dismiss(source)} onOpen={source=>void importPaper(source)}/>
+    <div className="bottom-status"><span><i/> {paper?`${paper.blocks.filter(b=>b.kind==='paragraph').length} 个正文段落`:'加载中'} <b>·</b> 已显示 {count} 项译文</span><span>{tasks.length?<button className="task-status-trigger" aria-label="打开翻译任务" onClick={()=>setTaskPanelMode('expanded')}>翻译任务 · {taskSummary(tasks)}</button>:configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span></div>
+    <TranslationTaskBar tasks={tasks} mode={taskPanelMode} onMode={setTaskPanelMode} onNotice={toast} onPause={source=>taskQueue.current!.pause(source)} onResume={source=>taskQueue.current!.resume(source)} onCancel={source=>taskQueue.current!.cancel(source)} onDismiss={source=>taskQueue.current!.dismiss(source)} onOpen={source=>void importPaper(source)}/>
     {notice&&<div className="toast" role="status">{notice}</div>}
     {selection&&<div className="selection-panel" role="dialog" aria-label="划句翻译"><div className="selection-header"><strong>划句翻译</strong><button aria-label="关闭划句翻译" onClick={()=>setSelection(undefined)}>×</button></div><p className="selected-text">{selection.text}</p>{selection.result?<div className="selection-result" dangerouslySetInnerHTML={{__html:clean(selection.result)}}/>:<p className="selection-helper">将结合所在段落理解这段文字，文件名保持原样。</p>}<button className="primary-button" disabled={selection.loading} onClick={translateSelection}>{selection.loading?'正在翻译…':'翻译选区 →'}</button></div>}
     {formula&&<FloatingPanel onClose={closeFormula}>
