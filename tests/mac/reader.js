@@ -19,6 +19,59 @@ try {
   assert(frame.innerHeight > 200 && frame.innerHeight <= innerHeight &&
     doc.documentElement.scrollHeight > frame.innerHeight * 3, 'unbounded article viewport');
 
+  // Check effective WebKit colors, including the cascade of dark body styles.
+  // Temporary cards use real paragraph and caption containers, without API calls.
+  const colorHosts = [doc.querySelector('.reader-addon:not(.reader-caption-addon)'),
+    ...[...doc.querySelectorAll('.reader-caption-addon')].slice(0, 2)];
+  assert(colorHosts.every(Boolean) && colorHosts.length === 3, 'translation color containers missing');
+  const colorCards = colorHosts.map(host => {
+    const card = doc.createElement('div');
+    card.className = 'reader-translation';
+    card.innerHTML = '<div class="reader-translation-label">译文</div><div>用于核对颜色的本地测试文字。</div>';
+    host.prepend(card);
+    return card;
+  });
+  function luminance(color) {
+    const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => {
+      const v = Number(value) / 255;
+      return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
+    });
+    return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+  }
+  function contrast(a, b) {
+    const x = luminance(a), y = luminance(b);
+    return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+  }
+  const initialTheme = doc.documentElement.dataset.theme;
+  const themeToggle = document.querySelector('[aria-label="切换深色模式"]');
+  try {
+    for (const theme of ['light', 'dark']) {
+      if (doc.documentElement.dataset.theme !== theme) themeToggle.click();
+      await until('article theme did not update', () => doc.documentElement.dataset.theme === theme);
+      for (const mode of ['bilingual', 'translated']) {
+        document.querySelectorAll('.mode-switch button')[mode === 'bilingual' ? 1 : 2].click();
+        await until('reading mode did not update', () => doc.body.dataset.mode === mode);
+        const body = frame.getComputedStyle(colorCards[0]);
+        for (const card of colorCards.slice(1)) {
+          const caption = frame.getComputedStyle(card);
+          for (const property of ['color', 'backgroundColor', 'borderLeftColor'])
+            assert(caption[property] !== body[property], theme + ' caption ' + property + ' matches body');
+          const label = frame.getComputedStyle(card.firstElementChild).color;
+          assert(label !== frame.getComputedStyle(colorCards[0].firstElementChild).color,
+            theme + ' caption label matches body');
+          assert(contrast(caption.color, caption.backgroundColor) >= 4.5 &&
+            contrast(label, caption.backgroundColor) >= 4.5, theme + ' caption text is hard to read');
+        }
+      }
+    }
+  } finally {
+    colorCards.forEach(card => card.remove());
+    if (doc.documentElement.dataset.theme !== initialTheme) themeToggle.click();
+    document.querySelectorAll('.mode-switch button')[1].click();
+    await until('reading preferences not restored', () =>
+      doc.documentElement.dataset.theme === initialTheme && doc.body.dataset.mode === 'bilingual');
+  }
+
   // The Mac app hides the web header. Both operations must still be reachable.
   document.documentElement.dataset.nativeShell = 'true';
   // The native + invokes the hidden web trigger; it must toggle rather than only focus.
