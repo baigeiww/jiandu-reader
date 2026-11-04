@@ -42,7 +42,7 @@ static NSString *const origin = @"http://127.0.0.1:5173";
 }
 - (void)performReaderCommand:(NSToolbarItem *)item {
     if ([item.itemIdentifier isEqual:@"settings"]) [self openSettings:item];
-    if ([item.itemIdentifier isEqual:@"import"]) [self openImport:item];
+    if ([item.itemIdentifier isEqual:@"import"]) [self performReaderAction:@"document.querySelector('.open-import')?.click()"];
     if ([item.itemIdentifier isEqual:@"sidebar"]) [self toggleSidebar:item];
 }
 - (void)performReaderAction:(NSString *)script {

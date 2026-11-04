@@ -21,6 +21,27 @@ try {
 
   // The Mac app hides the web header. Both operations must still be reachable.
   document.documentElement.dataset.nativeShell = 'true';
+  // The native + invokes the hidden web trigger; it must toggle rather than only focus.
+  const importTrigger = document.querySelector('.open-import');
+  importTrigger.click();
+  const importInput = await until('import panel did not open', () => document.getElementById('arxiv-input'));
+  assert(document.activeElement === importInput, 'opening import did not focus the input');
+  const draft = 'https://arxiv.org/html/2602.04299v1';
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(importInput, draft);
+  importInput.dispatchEvent(new Event('input', {bubbles:true}));
+  await until('input draft did not update', () => importInput.value === draft);
+  importTrigger.click();
+  await until('second + did not close import', () => !document.getElementById('paper-import'));
+  importTrigger.click();
+  await until('reopening lost the import draft', () => document.getElementById('arxiv-input')?.value === draft);
+  document.querySelector('.import-close').click();
+  await until('close button did not close import or restore visible focus', () =>
+    !document.getElementById('paper-import') && document.activeElement?.matches('.mode-switch button'));
+  importTrigger.click();
+  await until('import did not reopen for Escape', () => document.getElementById('arxiv-input'));
+  document.getElementById('arxiv-input').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+  await until('Escape did not close import', () => !document.getElementById('paper-import'));
+  assert(document.querySelector('.native-reader').contentDocument === doc, 'closing import reloaded the paper');
   const sidebar = document.querySelector('.sidebar');
   const sidebarControl = expanded => [...document.querySelectorAll('button[aria-controls][aria-expanded]')]
     .find(button => button.getAttribute('aria-controls') === sidebar.id &&
@@ -121,5 +142,33 @@ try {
   modal.dispatchEvent(new Event('cancel', {cancelable:true}));
   await until('settings failed to release focus', () =>
     !document.querySelector('dialog') && document.activeElement === trigger);
+
+  // Switching papers must preserve the user's sidebar tab, including when an
+  // import completes asynchronously while the library is open.
+  const shelfTab=[...document.querySelectorAll('.shelf-switch button')].find(button=>button.textContent==='我的藏书');
+  const directoryTab=[...document.querySelectorAll('.shelf-switch button')].find(button=>button.textContent==='论文目录');
+  shelfTab.click();
+  await until('library did not open',()=>document.querySelector('.library-open:not(:disabled)'));
+  const otherSource='https://www.nature.com/articles/sidebar-switch-test';
+  const originalFetch=window.fetch;
+  window.fetch=(input,options)=>String(input)==='/paper-nature/articles/sidebar-switch-test'
+    ?Promise.resolve(new Response('<meta name="citation_title" content="Sidebar switch test"><div class="c-article-body"><section><h2>Methods</h2><p>A second paper for checking the library view.</p></section></div>'))
+    :originalFetch(input,options);
+  try{
+    importTrigger.click();
+    const field=await until('import did not open for second paper',()=>document.getElementById('arxiv-input'));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,otherSource);
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+    await new Promise(resolve=>setTimeout(resolve,0));
+    field.form.requestSubmit();
+    await until('second paper did not open',()=>document.querySelector('.native-reader')?.contentDocument?.querySelector('h1')?.textContent==='Sidebar switch test');
+    assert(shelfTab.getAttribute('aria-pressed')==='true'&&document.querySelector('.paper-library'), 'import jumped from library to directory');
+    const sample=await until('saved sample not available',()=>document.querySelector('.library-open:not(:disabled)[title="https://arxiv.org/html/2602.04299v1"]'));
+    sample.click();
+    await until('cached sample did not reopen',()=>document.querySelector('.native-reader')?.contentDocument?.querySelector('h1')?.textContent?.includes('fNIRS-EEG'));
+    assert(shelfTab.getAttribute('aria-pressed')==='true'&&document.querySelector('.paper-library'), 'switching a saved paper jumped to directory');
+    directoryTab.click();
+    await until('manual directory switch failed',()=>directoryTab.getAttribute('aria-pressed')==='true'&&!document.querySelector('.paper-library'));
+  }finally{window.fetch=originalFetch;}
   return 'PASS';
 } catch (error) { return String(error); }

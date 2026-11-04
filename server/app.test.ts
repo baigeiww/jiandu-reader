@@ -38,6 +38,22 @@ test('正文请求按字节限长并能解码横跨分片的中文',async()=>{
   assert.equal(await readUtf8Body(split(),payload.length-1),undefined);
 });
 
+test('Frontiers 下载仅转发固定主机的公开全文和 XML 路径',async()=>{
+  const {spawn}=await import('node:child_process');
+  const {articleDownloads}=await import('../article-downloads');
+  const destinations:string[]=[];
+  const plugin=articleDownloads(url=>{destinations.push(url);return spawn(process.execPath,['-e','process.stdout.end(process.argv[1])',url],{stdio:['ignore','pipe','ignore']});});
+  let server!:Server;
+  plugin.configurePreviewServer({middlewares:{use(fn:Parameters<typeof createServer>[1]){server=createServer(fn);}}});
+  const origin=await listen(server),path='/journals/neuroscience/articles/10.3389/fnins.2012.00055/';
+  try{
+    for(const suffix of ['full','xml'])assert.equal(await fetch(origin+'/paper-frontiers'+path+suffix).then(r=>r.text()),'https://www.frontiersin.org'+path+suffix);
+    for(const invalid of ['/anything','/articles/10.3389/test/pdf',path+'xml/extra',path+'https://evil.test'])assert.equal((await fetch(origin+'/paper-frontiers'+invalid)).status,400);
+    assert.equal((await fetch(origin+'/paper-frontiers'+path+'xml',{method:'POST'})).status,400);
+    assert.equal(destinations.length,2);
+  }finally{await close(server);}
+});
+
 test('论文分块送达，下载中断时拒绝不完整的全文',async()=>{
   const {spawn}=await import('node:child_process');
   const {articleDownloads}=await import('../article-downloads');

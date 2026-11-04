@@ -67,7 +67,7 @@ export function parsePaper(html:string,source=SOURCE,parser:Pick<DOMParser,'pars
   const blocks:Block[]=[];
   function walk(parent:Element) {
     for(const el of parent.children) {
-      if(el.matches('.ltx_authors,.ltx_title_document,.ltx_title_abstract,.ltx_dates,.ltx_note,.ltx_biblist,.ltx_TOC')) continue;
+      if(el.matches('.ltx_authors,.ltx_title_document,.ltx_title_abstract,.ltx_dates,.ltx_note,.ltx_biblist,.ltx_TOC,.reader-source-note')) continue;
       if(parent===article && el.matches('.ltx_para') && el.querySelector('.ltx_ERROR')?.textContent==='\\reportnumber')continue;
       const heading = el.matches('h2,h3,h4,h5,h6');
       const kind = heading?'heading':el.matches('figure')?'figure':el.matches('table,.ltx_table')?'table':el.matches('p.ltx_p')?'paragraph':el.matches('pre,.ltx_equation,.ltx_equationgroup')?'other':null;
@@ -92,5 +92,5 @@ export function parsePaper(html:string,source=SOURCE,parser:Pick<DOMParser,'pars
     const prepared=prepareParagraph(el);
     blocks.push({id,kind:'caption',text,level:0,input:prepared.text,tokens:prepared.tokens});
   });
-  return {html:sanitize(article.outerHTML),source,id:sourceKind(source)==='arxiv'?source.split('/html/')[1]:new URL(source).pathname.split('/').filter(Boolean).at(-1)!,doi:article.getAttribute('data-reader-doi')||undefined,journal:article.getAttribute('data-reader-journal')||undefined,blocks,title:article.querySelector('h1')?.textContent?.trim() || '',authors:[...article.querySelectorAll('.ltx_personname')].map(a=>a.textContent?.trim()).join(', ')};
+  return {html:sanitize(article.outerHTML),source,id:sourceKind(source)==='arxiv'?source.split('/html/')[1]:sourceKind(source)==='frontiers'?article.getAttribute('data-reader-doi')||source.split('/articles/')[1].replace(/\/full$/,''):new URL(source).pathname.split('/').filter(Boolean).at(-1)!,doi:article.getAttribute('data-reader-doi')||undefined,journal:article.getAttribute('data-reader-journal')||undefined,blocks,title:article.querySelector('h1')?.textContent?.trim() || '',authors:[...article.querySelectorAll('.ltx_personname')].map(a=>a.textContent?.trim()).join(', ')};
 }

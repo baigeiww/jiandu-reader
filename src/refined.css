@@ -42,6 +42,10 @@ html[data-theme=dark] .primary-button{background:var(--accent);border-color:var(
 .brand-mark { flex: none; color: var(--accent); }
 .open-import { border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--text); padding: 7px 12px; font-size: 13px; }
 .open-import:hover, .open-import[aria-expanded="true"] { background: var(--soft); }
+.import-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.import-panel-heading label { font-size: 12px; color: var(--muted); margin: 0; }
+.import-close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border-radius: 6px; color: var(--muted); }
+.import-close:hover { background: var(--soft); color: var(--text); }
 .header-actions { gap: 12px; }
 .sidebar { padding-bottom: 32px; }
 .library-work-title { font-family: Georgia, "Songti SC", serif; font-size: 14px; line-height: 1.5; }

@@ -4,7 +4,7 @@ import {SOURCE, prepareParagraph, restoreTranslation, cacheKey} from './core';
 import {samples} from './samples';
 import {Directory} from './PaperDirectory';
 import {googleTranslate} from './google';
-import {paperUrl,fetchPaper,sourceLabel,sourceKind} from './sources';
+import {paperUrl,fetchPaper,sourceLabel,paperPdfUrl} from './sources';
 import {readConfiguration,activeSettings,writeConfiguration,type Configuration,type Settings} from './settings';
 import {SettingsDialog} from './SettingsDialog';
 import {PaperReader,type PaperReaderHandle} from './PaperReader';
@@ -61,9 +61,19 @@ function App() {
   const readerRef=useRef<PaperReaderHandle>(null);
   const [paper,setPaper]=useState<ReturnType<typeof parsePaper>>();
   const [importValue,setImportValue]=useState('');
-  const [showImport,setShowImport]=useState(false);
+  const [showImport,setShowImport]=useState(true);
   const [importing,setImporting]=useState(false);
   const [importError,setImportError]=useState('');
+  function closeImport(){
+    setShowImport(false);
+    const trigger=document.querySelector<HTMLButtonElement>('.open-import');
+    const target=trigger?.getClientRects().length?trigger:document.querySelector<HTMLButtonElement>('.mode-switch button');
+    target?.focus({preventScroll:true});
+  }
+  function toggleImport(){
+    if(showImport)closeImport();
+    else{setShowImport(true);window.scrollTo({top:0});}
+  }
   const importController=useRef<AbortController|undefined>(undefined);
   const paperGeneration=useRef(0);
   const [mode,setMode]=useState('bilingual');
@@ -188,7 +198,7 @@ function App() {
       try{if(!record||saved?.needsParse)await savePaper(next);else await touchPaper(next.source);setLibraryRevision(n=>n+1);}catch{storageFailed();}
       const restored=await restoreResults(next,record?.results);
       if(controller.signal.aborted)return;
-      currentPaper.current=next;setPaper(next);setResults(restored);setImportError('');setErrors({});setFatal('');setActive('abstract');setShelf(false);setShowImport(false);setImportValue('');if(innerWidth<1100)setSide(false);
+      currentPaper.current=next;setPaper(next);setResults(restored);setImportError('');setErrors({});setFatal('');setActive('abstract');setShowImport(false);setImportValue('');if(innerWidth<1100)setSide(false);
       try{localStorage.setItem('reader-last-source',next.source);}catch{/* Reading still works without storage. */}
       if(next.source!==SOURCE && currentSettings.current.provider==='demo') {
         setSettings(s=>({...s,provider:'llm'}));
@@ -279,7 +289,7 @@ function App() {
   const displayBusy={...busy,...(paperTask?.activeId&&taskBusy?{[paperTask.activeId]:true}:{})};
   const displayErrors={...errors,...(paperTask?.error&&paperTask.status==='failed'&&paperTask.activeId?{[paperTask.activeId]:paperTask.error}:{})};
   return <div className={'app'+(side?' sidebar-visible':'')}>
-    <header className="topbar"><a className="brand" href="#"><img width="32" height="32" alt="" src="/jiandu.svg"/><strong>笺读</strong><span className="brand-divider"/><span className="brand-sub">论文双语阅读</span></a><div className="header-actions"><button className="open-import" aria-expanded={showImport||!paper} aria-controls="paper-import" onClick={()=>{setShowImport(!showImport);if(!showImport)window.scrollTo({top:0});}}>＋ 导入论文</button><span className="local-status">{configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span><button className="settings-button" onClick={()=>setDialog(true)}>翻译设置</button></div></header>
+    <header className="topbar"><a className="brand" href="#"><img width="32" height="32" alt="" src="/jiandu.svg"/><strong>笺读</strong><span className="brand-divider"/><span className="brand-sub">论文双语阅读</span></a><div className="header-actions"><button className="open-import" aria-expanded={showImport} aria-controls="paper-import" onClick={toggleImport}>＋ 导入论文</button><span className="local-status">{configuration.profiles.find(p=>p.id===configuration.activeId)?.name||'本地阅读'}</span><button className="settings-button" onClick={()=>setDialog(true)}>翻译设置</button></div></header>
     <aside id="reading-sidebar" className={'sidebar '+(side?'open':'')} aria-label="阅读导航">
       <div className="shelf-identity"><img src="/jiandu.svg" alt="" width="46" height="46"/><div><strong>笺读</strong><small>论文阅读室</small></div>{side&&<SidebarToggle expanded onToggle={toggleSidebar}/>}</div>
       <div className="shelf-switch" aria-label="侧栏视图">
@@ -291,10 +301,10 @@ function App() {
     </aside>
     <SidebarResize open={side} onError={()=>toast('侧栏宽度已调整，但保存失败，请检查浏览器本地存储权限。')}/>
     <main className="main"><div className="reading-toolbar"><div className="breadcrumb">{!side&&<SidebarToggle expanded={false} onToggle={toggleSidebar}/>}<strong>阅读</strong>{paper&&<span className="source-stamp">{sourceLabel(paper.source)}</span>}</div><div className="reading-options"><div className="mode-switch">{[['original','原文'],['bilingual','双语'],['translated','译文']].map(([value,label])=><button className={mode===value?'selected':''} key={value} aria-pressed={mode===value} onClick={()=>setMode(value)}>{label}</button>)}</div><button className="icon-button font-control" aria-label="调整字号" title={`调整字号（当前 ${font} px）`} onClick={changeFont}>Aa</button><button className="icon-button" aria-label="切换深色模式" aria-pressed={dark} title={dark?"切换到浅色":"切换到深色"} onClick={changeTheme}>{dark?'☀':'☾'}</button></div></div>
-      {(showImport||!paper)&&<section id="paper-import" className="import-panel" aria-label="导入论文 HTML"><form onSubmit={e=>{e.preventDefault();void importPaper(importValue);}}><label htmlFor="arxiv-input">导入论文 HTML</label><div className="import-input-row"><input id="arxiv-input" autoFocus={showImport} value={importValue} onChange={e=>setImportValue(e.target.value)} placeholder="粘贴 arXiv / Nature / PMC 网址或 arXiv 编号" required/><button className="primary-button" type="submit" disabled={importing}>{importing?'正在导入…':'导入论文 →'}</button></div></form><p>支持 arXiv、Nature、PMC 的公开 HTML 全文；同一论文的来源版本可在侧栏归并。<button onClick={()=>void importPaper(SOURCE)} disabled={importing}>打开示例论文</button></p>{importError&&<div className="inline-error" role="alert">{importError} {paper&&'当前论文仍可阅读。'}</div>}</section>}
+      {showImport&&<section id="paper-import" className="import-panel" aria-label="导入论文 HTML" onKeyDown={e=>{if(e.key==='Escape'&&!e.nativeEvent.isComposing){e.preventDefault();e.stopPropagation();closeImport();}}}><div className="import-panel-heading"><label htmlFor="arxiv-input">导入论文 HTML</label><button type="button" className="import-close" aria-label="收起导入论文" title="收起（Esc）" onClick={closeImport}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div><form onSubmit={e=>{e.preventDefault();void importPaper(importValue);}}><div className="import-input-row"><input id="arxiv-input" autoFocus value={importValue} onChange={e=>setImportValue(e.target.value)} placeholder="粘贴 arXiv / Nature / PMC / Frontiers 网址或 arXiv 编号" required/><button className="primary-button" type="submit" disabled={importing}>{importing?'正在导入…':'导入论文 →'}</button></div></form><p>支持 arXiv、Nature、PMC、Frontiers 的公开全文；同一论文的来源版本可在侧栏归并。<button onClick={()=>void importPaper(SOURCE)} disabled={importing}>打开示例论文</button></p>{importError&&<div className="inline-error" role="alert">{importError} {paper&&'当前论文仍可阅读。'}</div>}</section>}
       {fatal?<div className="error-banner">{fatal}</div>:!paper?<div className="loading">正在整理论文结构…</div>:<>
       <div className="article-wrap">
-        <div className="reader-actions"><div className="reader-source"><span>{sourceLabel(paper.source)}: {paper.id}</span><a href={paper.source} target="_blank" rel="noreferrer">原网页 ↗</a>{sourceKind(paper.source)!=='pmc'&&<a href={sourceKind(paper.source)==='arxiv'?paper.source.replace('/html/','/pdf/'):paper.source+'.pdf'} target="_blank" rel="noreferrer">PDF ↗</a>}<span className="formula-hint">点击公式可解释</span></div><select className="translate-menu" aria-label="批量翻译" value="" disabled={importing||taskBusy||Object.values(busy).some(Boolean)} onChange={e=>{if(e.target.value)void translateAll(e.target.value as TranslationScope);}}>
+        <div className="reader-actions"><div className="reader-source"><span>{sourceLabel(paper.source)}: {paper.id}</span><a href={paper.source} target="_blank" rel="noreferrer">原网页 ↗</a>{paperPdfUrl(paper.source)&&<a href={paperPdfUrl(paper.source)} target="_blank" rel="noreferrer">PDF ↗</a>}<span className="formula-hint">点击公式可解释</span></div><select className="translate-menu" aria-label="批量翻译" value="" disabled={importing||taskBusy||Object.values(busy).some(Boolean)} onChange={e=>{if(e.target.value)void translateAll(e.target.value as TranslationScope);}}>
           <option value="" disabled>批量翻译…</option><option value="body">{settings.provider==='demo'?'载入示例译文':'翻译正文'}</option>
           <option value="captions">翻译图表说明</option><option value="all">翻译全文与图表</option>
         </select></div>

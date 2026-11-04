@@ -12,11 +12,12 @@ function downloadArticle(url:string){
 export function articleDownloads(download=downloadArticle){
   const middleware=(req:IncomingMessage,res:ServerResponse,next:()=>void)=>{
     const path=(req.url||'').split('?')[0];
-    if(!path.startsWith('/paper-nature/')&&!path.startsWith('/paper-pmc/'))return next();
+    if(!path.startsWith('/paper-nature/')&&!path.startsWith('/paper-pmc/')&&!path.startsWith('/paper-frontiers/'))return next();
     const nature=path.match(/^\/paper-nature(\/articles\/[a-z\d-]+(?:\/tables\/\d+)?\/?)$/i);
     const pmc=path.match(/^\/paper-pmc(\/articles\/PMC\d+\/)$/i);
-    if(req.method!=='GET'||(!nature&&!pmc)){res.writeHead(400);res.end('不支持的论文路径');return;}
-    const url=nature?'https://www.nature.com'+nature[1]:'https://pmc.ncbi.nlm.nih.gov'+pmc![1];
+    const frontiers=path.match(/^\/paper-frontiers(\/(?:journals\/[a-z\d-]+\/)?articles\/10\.3389\/[a-z\d.-]+\/(?:full|xml))$/i);
+    if(req.method!=='GET'||(!nature&&!pmc&&!frontiers)){res.writeHead(400);res.end('不支持的论文路径');return;}
+    const url=nature?'https://www.nature.com'+nature[1]:pmc?'https://pmc.ncbi.nlm.nih.gov'+pmc[1]:'https://www.frontiersin.org'+frontiers![1];
     const child=download(url);
     res.setHeader('Content-Type','text/html; charset=utf-8');
     res.setHeader('Cache-Control','no-store');

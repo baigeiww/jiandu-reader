@@ -8,19 +8,25 @@
 
 保留原文结构 · 逐段双语对照 · 公式解释 · 本机论文库
 
-[下载安装](https://github.com/baigeiww/jiandu-reader/releases/latest) · [本版更新](docs/releases/v0.4.0.md) · [反馈问题](https://github.com/baigeiww/jiandu-reader/issues)
+[下载安装](https://github.com/baigeiww/jiandu-reader/releases/latest) · [本版更新](docs/releases/v0.4.1.md) · [反馈问题](https://github.com/baigeiww/jiandu-reader/issues)
 
 </div>
 
-笺读是一款面向英文论文阅读的 Mac 桌面应用。导入 arXiv、Nature 或 PMC 的 HTML 全文，在原文、双语和译文之间切换。正文、公式、图表和引用尽量沿用来源论文的结构，译文按段落保存，方便下次接着读。
+笺读是一款面向英文论文阅读的 Mac 桌面应用。导入 arXiv、Nature、PMC 或 Frontiers 的公开全文，在原文、双语和译文之间切换。正文、公式、图表和引用尽量沿用来源论文的结构，译文按段落保存，方便下次接着读。
 
-当前主分支是 **v0.4.0 Mac 原生版**，使用 AppKit 窗口和 macOS 系统 WebKit。应用内置本机服务及运行环境，安装后直接启动。
+当前主分支是 **v0.4.1 Mac 原生版**，使用 AppKit 窗口和 macOS 系统 WebKit。应用内置本机服务及运行环境，安装后直接启动。
+
+## v0.4.1 更新
+
+- 切换论文时保留当前侧栏视图，在「我的藏书」中选论文不会再自动跳到「论文目录」。
+- 右上角「＋」支持再次点击收起导入栏，也可用关闭按钮或 Esc，收起后保留尚未提交的网址。
+- 新增 Frontiers 公开全文支持，从官方 XML 还原公式、表格、图注及引用，并保留章节导航和翻译功能。
 
 ## 安装与首次使用
 
 **系统要求**　Apple Silicon Mac（M1 及更新芯片），macOS 13 或更新系统。当前安装包为 arm64，尚未提供 Intel 安装包。
 
-1. 在 [Releases](https://github.com/baigeiww/jiandu-reader/releases/latest) 下载 `Jiandu-0.4.0-macOS-arm64.dmg`。
+1. 在 [Releases](https://github.com/baigeiww/jiandu-reader/releases/latest) 下载 `Jiandu-0.4.1-macOS-arm64.dmg`。
 2. 打开 DMG，将「笺读」拖入「Applications」，推出磁盘映像，再从「应用程序」启动。
 3. 导入论文 HTML 链接或 arXiv 编号，也可以先打开内置示例。
 4. 需要 AI 翻译时，打开「翻译设置」，填写自己的服务地址、模型和 API Key，测试连接后保存。
@@ -45,7 +51,9 @@ shasum -a 256 -c SHA256SUMS.txt
 | 自选 AI 服务 | DeepSeek 等 Chat Completions 接口、Messages 格式接口、多配置及术语表 |
 | 用键盘操作 | 原生菜单、快捷键、可聚焦的公式和图片，以及辅助功能标签 |
 
-`⌘O` 导入论文，`⌘,` 打开翻译设置，`⌃⌘S` 切换侧栏。图片预览和设置窗口都支持 Esc 关闭。
+`⌘O` 导入论文，`⌘,` 打开翻译设置，`⌃⌘S` 切换侧栏。右上角的「＋」可展开或收起导入栏，也可以点击栏内的关闭按钮或按 Esc 收起，未提交的网址会保留。图片预览和设置窗口都支持 Esc 关闭。
+
+**Frontiers**　支持文章的 full、abstract 和 pdf 网址，导入时统一读取全文；使用官方 XML 保留公式和表格，图片使用原站资源。
 
 **导入范围**　arXiv PDF 链接会转换为对应 HTML 来源，需要该论文已提供 HTML 全文。当前阅读流程面向网页全文，图片或在线资源的可用性取决于原站。
 
@@ -94,7 +102,7 @@ DEEPSEEK_API_KEY=替换为自己的密钥
 | `npm run test:mac` | 在 Mac 系统 WebKit 中验证阅读交互及图片布局 |
 | `npm run build` | 构建前端和本机服务 |
 | `npm run desktop:build` | 打包 Mac 应用 |
-| `npm run desktop:release` | 构建 DMG 和 SHA-256 校验文件，输出到 `output/releases/v0.4.0/` |
+| `npm run desktop:release` | 构建 DMG 和 SHA-256 校验文件，输出到 `output/releases/v0.4.1/` |
 
 源码分别位于 [src/](src/)、[native/](native/) 和 [server/](server/)。发布包只收集构建产物、运行环境和第三方许可，打包流程不复制项目目录或本机阅读库。仓库的 Release 工作流会在主分支版本更新时构建安装包，也支持手动运行。
 
